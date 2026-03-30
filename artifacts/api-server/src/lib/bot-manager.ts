@@ -141,12 +141,12 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   });
 
   botInstance.on("video", async (msg) => {
-    await handleVideo(msg, settings);
+    await handleVideo(msg, getSettings());
   });
 
   botInstance.on("document", async (msg) => {
     if (msg.document?.mime_type?.startsWith("video/")) {
-      await handleVideo(msg, settings);
+      await handleVideo(msg, getSettings());
     } else {
       await botInstance!.sendMessage(
         msg.chat.id,
@@ -231,7 +231,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
 
     addLog("🔊 تحويل الدعاء لصوت...", "processing");
     const audioPath = path.join(tmpDir, "audio.mp3");
-    await generateTTS(duaaText, audioPath, settings.ttsSpeed);
+    await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration);
 
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🎬 تراكب النص والصوت على الفيديو...",
@@ -479,13 +479,52 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   throw new Error("فشل توليد الدعاء من جميع النماذج المتاحة.");
 }
 
-async function generateTTS(text: string, outputPath: string, slow: boolean) {
-  // Use Python gTTS (already installed in the environment)
+async function generateTTS(text: string, outputPath: string, slow: boolean, videoDuration?: number) {
+  // Generate TTS using gTTS
   const escapedText = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const speed = slow ? "slow=True" : "slow=False";
+  const rawPath = outputPath.replace(".mp3", "_raw.mp3");
+
   await execAsync(
-    `python3 -c "from gtts import gTTS; gTTS(text='${escapedText}', lang='ar', ${speed}).save('${outputPath}')"`
+    `python3 -c "from gtts import gTTS; gTTS(text='${escapedText}', lang='ar', ${speed}).save('${rawPath}')"`
   );
+
+  if (!videoDuration) {
+    fs.renameSync(rawPath, outputPath);
+    return;
+  }
+
+  // Measure actual audio duration
+  const audioDuration = await getAudioDuration(rawPath);
+  addLog(`🎵 مدة الصوت: ${audioDuration.toFixed(1)}ث | الفيديو: ${videoDuration.toFixed(1)}ث`, "info");
+
+  if (audioDuration <= videoDuration) {
+    // Audio fits — use as-is
+    fs.renameSync(rawPath, outputPath);
+    return;
+  }
+
+  // Audio longer than video — speed it up with atempo filter
+  const ratio = audioDuration / videoDuration;
+  addLog(`⚡ تسريع الصوت: ${ratio.toFixed(2)}x لمطابقة الفيديو`, "processing");
+
+  // Build atempo chain (each step between 0.5 and 2.0)
+  const atempoFilters: string[] = [];
+  let remaining = ratio;
+  let safety = 0;
+  while (remaining > 1.001 && safety++ < 6) {
+    const step = Math.min(2.0, remaining);
+    atempoFilters.push(`atempo=${step.toFixed(4)}`);
+    remaining /= step;
+  }
+
+  const filterStr = atempoFilters.join(",");
+  await execAsync(
+    `ffmpeg -i "${rawPath}" -filter:a "${filterStr}" -y "${outputPath}"`,
+    { timeout: 30000 }
+  );
+  try { fs.unlinkSync(rawPath); } catch {}
+  addLog(`✅ تم تعديل سرعة الصوت`, "success");
 }
 
 /**

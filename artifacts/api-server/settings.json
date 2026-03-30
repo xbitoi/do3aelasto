@@ -1,9 +1,9 @@
 {
   "font": "Boutros",
   "fontSize": 92,
-  "yPosition": 83,
+  "yPosition": 28,
   "lineHeight": 1.2,
-  "strokeThickness": 0,
+  "strokeThickness": 1,
   "textColor": "#0000ff",
   "activeColor": "#ff0000",
   "ttsSpeed": true,
@@ -14,5 +14,7 @@
   "showBackground": true,
   "geminiModel": "gemma-3-27b-it",
   "originalVolume": 40,
-  "duaaVolume": 145
+  "duaaVolume": 145,
+  "wordEffect": "slide_up",
+  "transitionEffect": "slide_up"
 }

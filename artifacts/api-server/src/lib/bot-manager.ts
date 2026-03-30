@@ -78,6 +78,86 @@ let groqKeyStore = "";
 let logs: LogEntry[] = [];
 const chatSessions = new Map<number, ChatSession>();
 
+// ── Active operations & cancellation ──────────────────────────────────────
+interface ActiveOp {
+  chatId: number;
+  type: "single" | "multi";
+  stage: string;
+  startedAt: number;
+}
+const activeOps = new Map<number, ActiveOp>();
+const cancelledChats = new Set<number>();
+
+export function getActiveOps() {
+  return [...activeOps.values()];
+}
+
+export function cancelAllOps() {
+  const count = activeOps.size;
+  for (const id of activeOps.keys()) cancelledChats.add(id);
+  return count;
+}
+
+function setOpStage(chatId: number, stage: string) {
+  const op = activeOps.get(chatId);
+  if (op) op.stage = stage;
+}
+
+function checkCancelled(chatId: number) {
+  if (cancelledChats.has(chatId)) {
+    cancelledChats.delete(chatId);
+    throw new Error("CANCELLED");
+  }
+}
+
+// ── Known chats (for restart welcome) ─────────────────────────────────────
+const knownChatIds = new Set<number>();
+const KNOWN_CHATS_FILE = path.join(process.cwd(), "known-chats.json");
+
+function loadKnownChats() {
+  try {
+    if (fs.existsSync(KNOWN_CHATS_FILE)) {
+      const ids: number[] = JSON.parse(fs.readFileSync(KNOWN_CHATS_FILE, "utf8"));
+      ids.forEach(id => knownChatIds.add(id));
+    }
+  } catch {}
+}
+
+function saveKnownChats() {
+  try {
+    fs.writeFileSync(KNOWN_CHATS_FILE, JSON.stringify([...knownChatIds], null, 2), "utf8");
+  } catch {}
+}
+
+function trackChat(chatId: number) {
+  if (!knownChatIds.has(chatId)) {
+    knownChatIds.add(chatId);
+    saveKnownChats();
+  }
+}
+
+// ── Credentials persistence (for auto-restart) ─────────────────────────────
+const CREDS_FILE = path.join(process.cwd(), "bot-creds.json");
+
+function saveCredentials(botToken: string, geminiKey: string, groqKey: string) {
+  try {
+    fs.writeFileSync(CREDS_FILE, JSON.stringify({ botToken, geminiKey, groqKey }, null, 2), "utf8");
+  } catch (err) {
+    logger.warn({ err }, "Failed to save bot credentials");
+  }
+}
+
+function loadCredentials(): { botToken: string; geminiKey: string; groqKey: string } | null {
+  try {
+    if (fs.existsSync(CREDS_FILE)) {
+      return JSON.parse(fs.readFileSync(CREDS_FILE, "utf8"));
+    }
+  } catch {}
+  return null;
+}
+
+loadKnownChats();
+
 export function addLog(message: string, level: LogLevel = "info") {
   const entry: LogEntry = {
     id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
@@ -106,6 +186,8 @@ export function getBotStatus() {
     processedCount,
     logs: getLogs(),
     uptime: startTime ? Math.floor((Date.now() - startTime) / 1000) : 0,
+    activeOpsCount: activeOps.size,
+    activeOps: getActiveOps(),
   };
 }
 
@@ -118,7 +200,7 @@ export async function testBotToken(token: string) {
   return { success: false, error: data.description || "توكن غير صالح" };
 }
 
-export async function startBot(geminiKey: string, botToken: string, settings: AppSettings, groqKey = "") {
+export async function startBot(geminiKey: string, botToken: string, settings: AppSettings, groqKey = "", isAutoStart = false) {
   if (botRunning) {
     return { success: false, message: "البوت يعمل بالفعل" };
   }
@@ -135,18 +217,36 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   processedCount = 0;
   startTime = Date.now();
 
+  saveCredentials(botToken, geminiKey, groqKey);
+
   botInstance = new TelegramBot(botToken, { polling: true });
   botRunning = true;
 
-  addLog(`✅ تم تشغيل البوت: ${botName} (@${botUsername})`, "success");
+  addLog(`✅ تم تشغيل البوت: ${botName} (@${botUsername})${isAutoStart ? " (تشغيل تلقائي)" : ""}`, "success");
+
+  // إرسال رسالة ترحيب لجميع المحادثات المعروفة عند التشغيل التلقائي بعد إعادة التشغيل
+  if (isAutoStart && knownChatIds.size > 0) {
+    setTimeout(async () => {
+      for (const chatId of knownChatIds) {
+        try {
+          await botInstance!.sendMessage(
+            chatId,
+            `🟢 *البوت عاد للعمل!*\n\nتم إعادة تشغيل البوت تلقائياً وهو جاهز لاستقبال الفيديوهات. 🤲`,
+            { parse_mode: "Markdown" }
+          );
+        } catch { /* قد تكون المحادثة غير متاحة */ }
+      }
+    }, 3000);
+  }
 
   botInstance.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
+    trackChat(chatId);
     const name = msg.from?.first_name || "صديقي";
     addLog(`👤 مستخدم جديد: ${name}`, "info");
     await botInstance!.sendMessage(
       chatId,
-      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n🎬 *جرّب الآن!*`,
+      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n📋 *أوامر مفيدة:*\n• *حالة* → معرفة العمليات الجارية\n• *توقف* → إيقاف المعالجة الحالية\n\n🎬 *جرّب الآن!*`,
       { parse_mode: "Markdown" }
     );
   });
@@ -154,12 +254,13 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   botInstance.onText(/\/help/, async (msg) => {
     await botInstance!.sendMessage(
       msg.chat.id,
-      `📖 *مساعدة - بوت الدعاء الذكي*\n\n*فيديو مباشر:*\nأرسل فيديو واحد → يُعالج فوراً\n\n*دمج متعدد:*\n1️⃣ أرسل *ابدا*\n2️⃣ أرسل الفيديوهات مع أرقام في الوصف (1، 2، 3...)\n3️⃣ أرسل *ابدا* → يدمجها والدعاء يظهر على المقطع الأخير\n\n/start - بدء التشغيل`,
+      `📖 *مساعدة - بوت الدعاء الذكي*\n\n*فيديو مباشر:*\nأرسل فيديو واحد → يُعالج فوراً\n\n*دمج متعدد:*\n1️⃣ أرسل *ابدا*\n2️⃣ أرسل الفيديوهات مع أرقام في الوصف (1، 2، 3...)\n3️⃣ أرسل *ابدا* → يدمجها والدعاء يظهر على المقطع الأخير\n\n📋 *الأوامر النصية:*\n• *حالة* → العمليات الجارية\n• *توقف* → إيقاف معالجتك الحالية\n\n/start - بدء التشغيل`,
       { parse_mode: "Markdown" }
     );
   });
 
   botInstance.on("video", async (msg) => {
+    trackChat(msg.chat.id);
     const session = chatSessions.get(msg.chat.id);
     if (session) {
       await addVideoToSession(msg, session);
@@ -170,6 +271,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
 
   botInstance.on("document", async (msg) => {
     if (msg.document?.mime_type?.startsWith("video/")) {
+      trackChat(msg.chat.id);
       const session = chatSessions.get(msg.chat.id);
       if (session) {
         await addVideoToSession(msg, session);
@@ -189,9 +291,60 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     if (msg.video || msg.document) return;
     if (!msg.text) return;
     const chatId = msg.chat.id;
+    trackChat(chatId);
     const text = msg.text.trim();
     if (text.startsWith("/")) return;
 
+    // ── أمر التوقف ──────────────────────────────────────────────
+    if (text === "توقف" || text === "الغ" || text === "إلغاء" || text === "cancel") {
+      if (activeOps.has(chatId)) {
+        cancelledChats.add(chatId);
+        await botInstance!.sendMessage(
+          chatId,
+          "⏹ *جاري إيقاف العملية...*\n\nسيتوقف المعالجة في أقرب وقت. ⏳",
+          { parse_mode: "Markdown" }
+        );
+      } else if (chatSessions.has(chatId)) {
+        const session = chatSessions.get(chatId)!;
+        chatSessions.delete(chatId);
+        try { fs.rmSync(session.tmpDir, { recursive: true, force: true }); } catch {}
+        await botInstance!.sendMessage(chatId, "✅ تم إلغاء وضع التجميع.", { parse_mode: "Markdown" });
+      } else {
+        await botInstance!.sendMessage(chatId, "ℹ️ لا توجد عمليات جارية حالياً.", { parse_mode: "Markdown" });
+      }
+      return;
+    }
+
+    // ── أمر الحالة ──────────────────────────────────────────────
+    if (text === "حالة" || text === "status") {
+      const op = activeOps.get(chatId);
+      const session = chatSessions.get(chatId);
+      const allOps = getActiveOps();
+
+      let statusText = `📊 *حالة البوت*\n\n`;
+      statusText += `🤖 الفيديوهات المُعالجة: *${processedCount}*\n`;
+      statusText += `⚡ العمليات النشطة (كلي): *${allOps.length}*\n\n`;
+
+      if (op) {
+        const elapsed = Math.floor((Date.now() - op.startedAt) / 1000);
+        statusText += `✅ *عمليتك الحالية:*\n`;
+        statusText += `• النوع: ${op.type === "single" ? "فيديو واحد" : "دمج متعدد"}\n`;
+        statusText += `• المرحلة: ${op.stage}\n`;
+        statusText += `• الوقت المنقضي: *${elapsed}ث*\n\n`;
+        statusText += `💡 أرسل *توقف* لإلغاء العملية`;
+      } else if (session) {
+        statusText += `📋 *وضع التجميع نشط:*\n`;
+        statusText += `• الفيديوهات المُجمَّعة: *${session.videos.length}*\n`;
+        statusText += `• أرسل *ابدا* للمعالجة أو *توقف* للإلغاء`;
+      } else {
+        statusText += `✨ *لا توجد عمليات جارية*\n\nأرسل فيديو وأبدأ! 🎬`;
+      }
+
+      await botInstance!.sendMessage(chatId, statusText, { parse_mode: "Markdown" });
+      return;
+    }
+
+    // ── أمر ابدا ────────────────────────────────────────────────
     if (text === "ابدا" || text === "ابدأ") {
       const session = chatSessions.get(chatId);
       if (!session) {
@@ -199,7 +352,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
         chatSessions.set(chatId, { state: "collecting", videos: [], tmpDir });
         await botInstance!.sendMessage(
           chatId,
-          `✅ *وضع التجميع نشط!*\n\nأرسل الفيديوهات مع الأرقام في وصف كل فيديو:\n• فيديو أول → اكتب *1* في الوصف\n• فيديو ثانٍ → اكتب *2* في الوصف\n• وهكذا...\n\nعندما تنتهي أرسل *ابدا* مرة أخرى للمعالجة 🚀`,
+          `✅ *وضع التجميع نشط!*\n\nأرسل الفيديوهات مع الأرقام في وصف كل فيديو:\n• فيديو أول → اكتب *1* في الوصف\n• فيديو ثانٍ → اكتب *2* في الوصف\n• وهكذا...\n\nعندما تنتهي أرسل *ابدا* مرة أخرى للمعالجة 🚀\n\n💡 أرسل *توقف* لإلغاء التجميع`,
           { parse_mode: "Markdown" }
         );
       } else {
@@ -217,11 +370,11 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     if (session) {
       await botInstance!.sendMessage(
         chatId,
-        `📹 أرسل فيديوهات مرقمة أو أرسل *ابدا* للمعالجة\n📋 المجمَّع حتى الآن: *${session.videos.length}* فيديو`,
+        `📹 أرسل فيديوهات مرقمة أو أرسل *ابدا* للمعالجة\n📋 المجمَّع حتى الآن: *${session.videos.length}* فيديو\n\n💡 أرسل *توقف* لإلغاء التجميع`,
         { parse_mode: "Markdown" }
       );
     } else {
-      await botInstance!.sendMessage(chatId, "🎬 أرسل لي فيديو وسأضع عليه دعاءً بصوت جميل! 🤲");
+      await botInstance!.sendMessage(chatId, "🎬 أرسل لي فيديو وسأضع عليه دعاءً بصوت جميل! 🤲\n\nأرسل *حالة* لمعرفة وضع البوت.");
     }
   });
 
@@ -249,7 +402,9 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
   const userName = msg.from?.first_name || "المستخدم";
   addLog(`📥 استقبال فيديو من: ${userName}`, "info");
 
+  activeOps.set(chatId, { chatId, type: "single", stage: "تحميل الفيديو...", startedAt: Date.now() });
   let statusMsg: TelegramBot.Message | null = null;
+  let tmpDir = "";
 
   try {
     statusMsg = await botInstance!.sendMessage(
@@ -258,7 +413,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
       { parse_mode: "Markdown" }
     );
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-"));
 
     const fileId = msg.video?.file_id || msg.document?.file_id;
     if (!fileId) throw new Error("لم يتم العثور على الفيديو");
@@ -269,12 +424,14 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
 
     addLog("📥 تحميل الفيديو...", "processing");
     await downloadFile(fileUrl, videoPath);
+    checkCancelled(chatId);
 
     // قراءة المدة الحقيقية من الملف بدلاً من بيانات تيليغرام
     addLog("📏 قراءة بيانات الفيديو...", "processing");
     const actualDuration = await getVideoDuration(videoPath);
     addLog(`⏱️ مدة الفيديو الحقيقية: ${actualDuration.toFixed(1)}ث`, "info");
 
+    setOpStage(chatId, "توليد الدعاء...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🤖 توليد الدعاء بـ Gemini AI...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -283,7 +440,9 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     addLog("🤖 توليد الدعاء بالذكاء الاصطناعي...", "processing");
     const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle, groqKeyStore, settings.geminiModel || "auto");
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
+    checkCancelled(chatId);
 
+    setOpStage(chatId, "توليد الصوت...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🔊 تحويل الدعاء لصوت...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -292,7 +451,9 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     addLog("🔊 تحويل الدعاء لصوت...", "processing");
     const audioPath = path.join(tmpDir, "audio.mp3");
     await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration, settings.ttsVoice || "ar-SA-HamedNeural");
+    checkCancelled(chatId);
 
+    setOpStage(chatId, "معالجة الفيديو...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🎬 تراكب النص والصوت على الفيديو...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -301,7 +462,9 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     addLog("🎬 معالجة الفيديو وتراكب النص...", "processing");
     const outputPath = path.join(tmpDir, "output.mp4");
     await processVideoWithText(videoPath, audioPath, duaaText, outputPath, settings);
+    checkCancelled(chatId);
 
+    setOpStage(chatId, "إرسال الفيديو...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -324,18 +487,33 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     processedCount++;
     addLog(`🎉 تم إرسال الفيديو بنجاح لـ ${userName}`, "success");
 
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    addLog(`❌ خطأ في المعالجة: ${errorMsg}`, "error");
-    if (statusMsg) {
-      await botInstance!
-        .editMessageText(
-          `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
+    if (errorMsg === "CANCELLED") {
+      addLog(`⏹ تم إلغاء المعالجة لـ ${userName}`, "warning");
+      if (statusMsg) {
+        await botInstance!.editMessageText(
+          "⏹ *تم إلغاء العملية بنجاح.*",
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-        )
-        .catch(() => {});
+        ).catch(() => {});
+      } else {
+        await botInstance!.sendMessage(chatId, "⏹ تم إلغاء العملية.", { parse_mode: "Markdown" }).catch(() => {});
+      }
+    } else {
+      addLog(`❌ خطأ في المعالجة: ${errorMsg}`, "error");
+      if (statusMsg) {
+        await botInstance!
+          .editMessageText(
+            `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
+            { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+          )
+          .catch(() => {});
+      }
     }
+    if (tmpDir) try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  } finally {
+    activeOps.delete(chatId);
   }
 }
 
@@ -371,6 +549,7 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
 
   addLog(`🎬 بدء دمج ${sorted.length} فيديوهات`, "processing");
 
+  activeOps.set(chatId, { chatId, type: "multi", stage: "تحميل الفيديوهات...", startedAt: Date.now(), videoCount: sorted.length } as ActiveOp & { videoCount: number });
   let statusMsg: TelegramBot.Message | null = null;
   try {
     statusMsg = await botInstance!.sendMessage(
@@ -382,6 +561,7 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
     // 1. Download all videos
     const rawPaths: string[] = [];
     for (let i = 0; i < sorted.length; i++) {
+      checkCancelled(chatId);
       const v = sorted[i];
       const fileInfo = await botInstance!.getFile(v.fileId);
       const fileUrl = `https://api.telegram.org/file/bot${(botInstance as any).token}/${fileInfo.file_path}`;
@@ -389,37 +569,46 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       await downloadFile(fileUrl, vidPath);
       rawPaths.push(vidPath);
       addLog(`✅ تم تحميل الفيديو ${i + 1}/${sorted.length}`, "info");
+      setOpStage(chatId, `تحميل ${i + 1}/${sorted.length}...`);
     }
+    checkCancelled(chatId);
 
     const lastRawPath = rawPaths[rawPaths.length - 1];
     const lastDuration = await getVideoDuration(lastRawPath);
 
     // 2. Generate duaa based on last video duration
+    setOpStage(chatId, "توليد الدعاء...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🤖 توليد الدعاء للمقطع الأخير...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
     const duaaText = await generateDuaa(geminiKeyStore, lastDuration, settings.duaaStyle, groqKeyStore, settings.geminiModel || "auto");
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
+    checkCancelled(chatId);
 
     // 3. Generate TTS
+    setOpStage(chatId, "توليد الصوت...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🔊 توليد صوت الدعاء...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
     const audioPath = path.join(tmpDir, "audio.mp3");
     await generateTTS(duaaText, audioPath, settings.ttsSpeed, lastDuration, settings.ttsVoice || "ar-SA-HamedNeural");
+    checkCancelled(chatId);
 
     // 4. Process last video with duaa overlay
+    setOpStage(chatId, "معالجة المقطع الأخير...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🎬 معالجة المقطع الأخير بالدعاء...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
     const lastProcessedPath = path.join(tmpDir, "last_processed.mp4");
     await processVideoWithText(lastRawPath, audioPath, duaaText, lastProcessedPath, settings);
+    checkCancelled(chatId);
 
     // 5. If only one video, send directly
     if (sorted.length === 1) {
+      setOpStage(chatId, "إرسال الفيديو...");
       await botInstance!.editMessageText(
         "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -433,26 +622,32 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       const [refW, refH] = await Promise.all([getVideoWidth(lastRawPath), getVideoHeight(lastRawPath)]);
 
       // 7. Normalize non-last videos to same dimensions/fps
+      setOpStage(chatId, "توحيد المقاطع...");
       await botInstance!.editMessageText(
         `⏳ *جاري المعالجة...*\n\n🔗 توحيد وضبط ${sorted.length - 1} مقاطع...`,
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       const segmentPaths: string[] = [];
       for (let i = 0; i < rawPaths.length - 1; i++) {
+        checkCancelled(chatId);
         const normPath = path.join(tmpDir, `seg_${i}.mp4`);
         await normalizeVideoSegment(rawPaths[i], normPath, refW, refH, settings);
         segmentPaths.push(normPath);
       }
       segmentPaths.push(lastProcessedPath);
+      checkCancelled(chatId);
 
       // 8. Concat all segments
+      setOpStage(chatId, "دمج المقاطع...");
       await botInstance!.editMessageText(
         "⏳ *جاري المعالجة...*\n\n🎞️ دمج المقاطع...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       const finalPath = path.join(tmpDir, "final.mp4");
       await concatVideos(segmentPaths, finalPath);
+      checkCancelled(chatId);
 
+      setOpStage(chatId, "إرسال الفيديو النهائي...");
       await botInstance!.editMessageText(
         "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
@@ -469,14 +664,27 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
 
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    addLog(`❌ خطأ في دمج الفيديوهات: ${errorMsg}`, "error");
-    if (statusMsg) {
-      await botInstance!.editMessageText(
-        `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
-        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-      ).catch(() => {});
+    if (errorMsg === "CANCELLED") {
+      addLog(`⏹ تم إلغاء دمج الفيديوهات`, "warning");
+      if (statusMsg) {
+        await botInstance!.editMessageText(
+          "⏹ *تم إلغاء العملية بنجاح.*",
+          { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+        ).catch(() => {});
+      } else {
+        await botInstance!.sendMessage(chatId, "⏹ تم إلغاء العملية.", { parse_mode: "Markdown" }).catch(() => {});
+      }
+    } else {
+      addLog(`❌ خطأ في دمج الفيديوهات: ${errorMsg}`, "error");
+      if (statusMsg) {
+        await botInstance!.editMessageText(
+          `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
+          { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+        ).catch(() => {});
+      }
     }
   } finally {
+    activeOps.delete(chatId);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }

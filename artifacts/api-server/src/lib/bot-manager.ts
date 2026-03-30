@@ -279,9 +279,46 @@ async function downloadFile(url: string, dest: string) {
   fs.writeFileSync(dest, Buffer.from(buf));
 }
 
+/** Fetch available Gemini models that support generateContent, ordered by preference */
+async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  const preferredOrder = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-1.0-pro",
+    "gemini-pro",
+  ];
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    if (!res.ok) return preferredOrder;
+
+    const data = (await res.json()) as {
+      models?: Array<{ name: string; supportedGenerationMethods?: string[] }>;
+    };
+
+    const available = (data.models ?? [])
+      .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+      .map((m) => m.name.replace("models/", ""));
+
+    // Sort by our preference order; put unknown models last
+    const sorted = [
+      ...preferredOrder.filter((m) => available.includes(m)),
+      ...available.filter((m) => !preferredOrder.includes(m)),
+    ];
+
+    return sorted.length > 0 ? sorted : preferredOrder;
+  } catch {
+    return preferredOrder;
+  }
+}
+
 async function generateDuaa(geminiKey: string, duration: number, style: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const styleMap: Record<string, string> = {
     "تضرع وخشوع": "يعبّر عن التضرع والخشوع والانكسار بين يدي الله",
@@ -304,16 +341,39 @@ async function generateDuaa(geminiKey: string, duration: number, style: string):
 
 اكتب الدعاء الآن:`;
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.8, maxOutputTokens: 200 },
-  });
+  // Fetch models available for this key, then try each until one succeeds
+  const models = await getAvailableGeminiModels(geminiKey);
+  addLog(`🔍 النماذج المتاحة: ${models.slice(0, 3).join(", ")}...`, "info");
 
-  let text = result.response.text().trim();
-  const lines = text.split("\n").filter((l) => l.trim());
-  text = lines[0].trim();
+  let lastError: unknown;
+  for (const modelName of models) {
+    try {
+      addLog(`🤖 محاولة النموذج: ${modelName}`, "processing");
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.8, maxOutputTokens: 200 },
+      });
 
-  return text;
+      let text = result.response.text().trim();
+      const lines = text.split("\n").filter((l) => l.trim());
+      text = lines[0].trim();
+      addLog(`✅ نجح النموذج: ${modelName}`, "success");
+      return text;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const is429 = msg.includes("429") || msg.toLowerCase().includes("quota");
+      const is404 = msg.includes("404") || msg.toLowerCase().includes("not found");
+      addLog(`⚠️ فشل ${modelName}: ${is429 ? "تجاوز الحصة" : is404 ? "غير موجود" : msg.slice(0, 60)}`, "warning");
+      lastError = err;
+      // Only retry on quota/not-found errors; stop on auth errors
+      if (!is429 && !is404) break;
+    }
+  }
+
+  throw new Error(
+    `فشلت جميع نماذج Gemini المتاحة. آخر خطأ: ${lastError instanceof Error ? lastError.message.slice(0, 150) : String(lastError)}`
+  );
 }
 
 async function generateTTS(text: string, outputPath: string, slow: boolean) {

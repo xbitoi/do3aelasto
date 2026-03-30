@@ -749,6 +749,29 @@ async function publishToTikTok(videoPath: string, title: string, description: st
   }
 }
 
+// ── High-quality re-encoding for publishing ───────────────────────────────
+async function reencodeHighQuality(inputPath: string, outputPath: string): Promise<void> {
+  const cmd = [
+    "ffmpeg",
+    `-i "${inputPath}"`,
+    `-c:v libx264`,
+    `-preset slow`,
+    `-crf 16`,
+    `-profile:v high`,
+    `-level 4.1`,
+    `-pix_fmt yuv420p`,
+    `-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2"`,
+    `-r 30`,
+    `-c:a aac`,
+    `-b:a 192k`,
+    `-ar 48000`,
+    `-ac 2`,
+    `-movflags +faststart`,
+    `-y "${outputPath}"`,
+  ].join(" ");
+  await execAsync(cmd, { timeout: 600000 });
+}
+
 async function handlePublish(chatId: number, settings: AppSettings) {
   const last = loadLastVideo();
   if (!last) {
@@ -782,9 +805,25 @@ async function handlePublish(chatId: number, settings: AppSettings) {
 
   const publishStartTime = Date.now();
 
-  // Generate AI title (short + emojis, glorifying God's creation)
+  // ── Step 1: Generate AI title ─────────────────────────────────────────
   addLog("🏷️ جاري توليد العنوان...", "processing");
   const title = await generateVideoTitle(geminiKeyStore || settings.youtubeClientId || "");
+
+  // ── Step 2: Re-encode at highest quality for publishing ───────────────
+  const hqVideoPath = last.videoPath.replace(/\.mp4$/, "-hq.mp4");
+  let publishVideoPath = last.videoPath;
+  try {
+    await botInstance!.editMessageText(
+      `⏳ *جاري تهيئة الفيديو بجودة عالية...*\n\n🎬 تحسين جودة الفيديو للنشر الاحترافي\n\n_${title}_`,
+      { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+    ).catch(() => {});
+    addLog("🎬 إعادة ترميز الفيديو بجودة عالية...", "processing");
+    await reencodeHighQuality(last.videoPath, hqVideoPath);
+    publishVideoPath = hqVideoPath;
+    addLog("✅ تم تحسين جودة الفيديو للنشر", "success");
+  } catch (encodeErr) {
+    addLog(`⚠️ لم يمكن تحسين الجودة، سيُستخدم الأصلي: ${encodeErr instanceof Error ? encodeErr.message.slice(0, 50) : "خطأ"}`, "warning");
+  }
 
   // Duaa text and optional custom description
   const customDesc = settings.publishDescription?.trim();
@@ -810,7 +849,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     ).catch(() => {});
     const ytRes = await publishToYouTube(
-      last.videoPath, title, last.duaaText, customDesc,
+      publishVideoPath, title, last.duaaText, customDesc,
       settings.youtubeToken, settings.youtubeClientId, settings.youtubeClientSecret
     );
     if (ytRes.success) {
@@ -833,7 +872,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     ).catch(() => {});
     const fbDesc = buildFacebookDescription(last.duaaText, customDesc);
-    const fbRes = await publishToFacebook(last.videoPath, title, fbDesc, settings.facebookToken);
+    const fbRes = await publishToFacebook(publishVideoPath, title, fbDesc, settings.facebookToken);
     if (fbRes.success) {
       platformResults.push({ platform: "فيسبوك", icon: "📘", success: true, channelName: fbRes.pageName, url: fbRes.url });
       addLog(`✅ فيسبوك: ${fbRes.url}`, "success");
@@ -845,7 +884,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
 
   if (hasTT) {
     const ttDesc = `🤲 ${last.duaaText}\n\n${["#دعاء", "#إسلام", "#سبحان_الله", "#الله_أكبر", "#Shorts"].join(" ")}`;
-    const ttRes = await publishToTikTok(last.videoPath, title, ttDesc, settings.tiktokToken);
+    const ttRes = await publishToTikTok(publishVideoPath, title, ttDesc, settings.tiktokToken);
     if (ttRes.success) {
       const ttName = ttRes.displayName || (ttRes.username ? `@${ttRes.username}` : undefined);
       platformResults.push({ platform: "تيك توك", icon: "🎵", success: true, channelName: ttName, extra: "قيد المراجعة" });
@@ -854,6 +893,11 @@ async function handlePublish(chatId: number, settings: AppSettings) {
       platformResults.push({ platform: "تيك توك", icon: "🎵", success: false, error: ttRes.error });
       addLog(`❌ فشل تيك توك: ${ttRes.error}`, "error");
     }
+  }
+
+  // Cleanup HQ temp file
+  if (publishVideoPath !== last.videoPath) {
+    try { fs.unlinkSync(publishVideoPath); } catch {}
   }
 
   const publishDuration = Math.round((Date.now() - publishStartTime) / 1000);
@@ -905,6 +949,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     `📊 *إحصائيات النشر:*`,
     `⏱️ *وقت النشر:* ${publishDuration} ثانية`,
     `🎬 *حجم الفيديو:* ${videoSize}`,
+    `🏆 *جودة النشر:* ${publishVideoPath !== last.videoPath ? "عالية جداً (CRF 16 — preset slow)" : "قياسية"}`,
     `📱 *عدد المنصات:* ${successCount}/${platformResults.length} منصة`,
     hasYT && platformResults.find(r => r.platform === "يوتيوب")?.shortUrl
       ? `▶️ *يوتيوب Shorts:* منشور بنجاح` : "",
@@ -1720,9 +1765,14 @@ export async function checkGeminiKeyStatus(apiKey: string): Promise<{
   }
 }
 
-async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords: number, randomTheme: string): Promise<string> {
+async function generateDuaaWithGroq(
+  groqKey: string,
+  minWords: number,
+  _maxWords: number,
+  opening: typeof DUAA_OPENINGS[number]
+): Promise<string> {
   const groq = new Groq({ apiKey: groqKey });
-  addLog("🤖 محاولة Groq...", "processing");
+  addLog(`🤖 Groq — البداية: ${opening.label}`, "processing");
 
   const models = [
     "llama-3.3-70b-versatile",
@@ -1731,13 +1781,12 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
     "qwen-qwq-32b",
   ];
 
-  const opening = pickRandomOpening();
-  addLog(`🎲 Groq — البداية: ${opening.label}`, "info");
-  const groqPrompt = `اكتب دعاءً إسلامياً بالعربية الفصحى مع التشكيل الكامل على جميع الحروف.
-موضوع الدعاء: ${randomTheme}
-عدد الكلمات: بين ${minWords} و${_maxWords} كلمة تماماً
-شرط إضافي: يجب أن يبدأ الدعاء بالعبارة «${opening.text}» مباشرةً.
-القاعدة الصارمة: اكتب فقط نص الدعاء العربي المشكّل، لا مقدمة ولا شرح ولا ترجمة.`;
+  const groqPrompt = `أنت عالم بالدعاء الإسلامي. اكتب دعاءً إسلامياً مؤثراً بالعربية الفصحى مع التشكيل الكامل على جميع الحروف.
+موضوع الدعاء: ${opening.theme}
+عدد الكلمات: بين ${minWords} و${_maxWords} كلمة تماماً.
+شرط إلزامي: يبدأ الدعاء بـ «${opening.text}» ويتناسق معها ما بعدها تماماً.
+مثال على الأسلوب: ${opening.example}
+القاعدة: اكتب فقط نص الدعاء المشكّل — لا مقدمة ولا شرح ولا علامات.`;
 
   let bestText = "";
   let bestCount = 0;
@@ -1784,23 +1833,83 @@ function hasTashkeel(text: string): boolean {
   return arabicLetters > 0 && diacritics / arabicLetters >= 0.5;
 }
 
-// ── Random duaa opening phrases ───────────────────────────────────────────
+// ── Random duaa opening phrases — each with its matching theme ────────────
 const DUAA_OPENINGS = [
-  { text: "اللَّهُمَّ",          label: "اللهم" },
-  { text: "رَبِّي",              label: "ربي" },
-  { text: "يَا رَبِّ",           label: "يارب" },
-  { text: "يَا رَحِيمُ",         label: "يارحيم" },
-  { text: "يَا غَفُورُ",         label: "ياغفور" },
-  { text: "سُبْحَانَكَ رَبِّي",  label: "سبحانك ربي" },
-  { text: "يَا حَيُّ يَا قَيُّومُ", label: "ياحي ياقيوم" },
-  { text: "يَا كَرِيمُ",         label: "ياكريم" },
-  { text: "يَا تَوَّابُ",        label: "ياتواب" },
-  { text: "يَا أَرْحَمَ الرَّاحِمِينَ", label: "يا أرحم الراحمين" },
-  { text: "رَبَّنَا",            label: "ربنا" },
-  { text: "يَا لَطِيفُ",         label: "يالطيف" },
-  { text: "يَا عَفُوُّ",         label: "ياعفو" },
-  { text: "يَا رَزَّاقُ",        label: "يارزاق" },
-  { text: "يَا مُجِيبَ الدُّعَاءِ", label: "يا مجيب الدعاء" },
+  {
+    text: "اللَّهُمَّ", label: "اللهم",
+    theme: "التضرع والخشوع بين يدي الله وطلب الهداية والتوفيق",
+    example: "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْهُدَى وَالتُّقَى وَالْعَفَافَ وَالْغِنَى",
+  },
+  {
+    text: "رَبِّي", label: "ربي",
+    theme: "إفراد الله بالربوبية والتقرب إليه بالتذلل والافتقار التام",
+    example: "رَبِّي إِنِّي لِمَا أَنزَلْتَ إِلَيَّ مِنْ خَيْرٍ فَقِيرٌ",
+  },
+  {
+    text: "يَا رَبِّ", label: "يارب",
+    theme: "الإلحاح في الدعاء والتضرع للرب طالبًا الفرج والنجاة",
+    example: "يَا رَبِّ أَغِثْنِي وَارْحَمْنِي وَاهْدِنِي إِلَى صِرَاطِكَ الْمُسْتَقِيمِ",
+  },
+  {
+    text: "يَا رَحِيمُ", label: "يارحيم",
+    theme: "طلب الرحمة الواسعة من الرحيم واللجوء إليه من الضيق والهم",
+    example: "يَا رَحِيمُ ارْحَمْنِي بِرَحْمَتِكَ الَّتِي وَسِعَتْ كُلَّ شَيْءٍ",
+  },
+  {
+    text: "يَا غَفُورُ", label: "ياغفور",
+    theme: "الاعتراف بالذنوب وطلب المغفرة والتوبة من الغفور الستّار",
+    example: "يَا غَفُورُ اغْفِرْ لِي ذُنُوبِي وَتُبْ عَلَيَّ إِنَّكَ أَنْتَ التَّوَّابُ الرَّحِيمُ",
+  },
+  {
+    text: "سُبْحَانَكَ رَبِّي", label: "سبحانك ربي",
+    theme: "التسبيح والتنزيه لله ثم الانتقال لطلب العافية والرحمة",
+    example: "سُبْحَانَكَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ إِنِّي كُنْتُ مِنَ الظَّالِمِينَ",
+  },
+  {
+    text: "يَا حَيُّ يَا قَيُّومُ", label: "ياحي ياقيوم",
+    theme: "طلب الثبات على الحق والاستغاثة بالحي القيوم الذي لا يموت",
+    example: "يَا حَيُّ يَا قَيُّومُ بِرَحْمَتِكَ أَسْتَغِيثُ أَصْلِحْ لِي شَأْنِي كُلَّهُ",
+  },
+  {
+    text: "يَا كَرِيمُ", label: "ياكريم",
+    theme: "طلب العطاء والرزق الحلال والكرم الإلهي الذي لا ينفد",
+    example: "يَا كَرِيمُ أَنْتَ الْجَوَادُ الْكَرِيمُ فَأَعْطِنِي مِنْ فَضْلِكَ الْعَمِيمِ",
+  },
+  {
+    text: "يَا تَوَّابُ", label: "ياتواب",
+    theme: "التوبة الصادقة والندم والعزم على العودة لله والإصلاح",
+    example: "يَا تَوَّابُ تُبْ عَلَيَّ إِنَّكَ أَنْتَ التَّوَّابُ الرَّحِيمُ",
+  },
+  {
+    text: "يَا أَرْحَمَ الرَّاحِمِينَ", label: "يا أرحم الراحمين",
+    theme: "طلب الشفاء والرحمة في الشدائد من أرحم الراحمين",
+    example: "يَا أَرْحَمَ الرَّاحِمِينَ ارْحَمْنِي وَاشْفِنِي وَعَافِنِي مِمَّا ابْتَلَيْتَنِي",
+  },
+  {
+    text: "رَبَّنَا", label: "ربنا",
+    theme: "الدعاء الجماعي وطلب الخير في الدنيا والآخرة ودرء الشر",
+    example: "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ",
+  },
+  {
+    text: "يَا لَطِيفُ", label: "يالطيف",
+    theme: "طلب اللطف الإلهي والتيسير في الأمور الصعبة وكشف الضيق",
+    example: "يَا لَطِيفُ الطُفْ بِي فِي أَمْرِي وَيَسِّرْ لِي مَا أَعْسَرَ عَلَيَّ",
+  },
+  {
+    text: "يَا عَفُوُّ", label: "ياعفو",
+    theme: "طلب العفو والصفح عن الذنوب والخطايا مع التذلل والانكسار",
+    example: "يَا عَفُوُّ إِنَّكَ عَفُوٌّ كَرِيمٌ تُحِبُّ الْعَفْوَ فَاعْفُ عَنِّي",
+  },
+  {
+    text: "يَا رَزَّاقُ", label: "يارزاق",
+    theme: "طلب الرزق الحلال الطيب المبارك من الرزاق الكريم",
+    example: "يَا رَزَّاقُ ارْزُقْنِي رِزْقًا حَلَالًا طَيِّبًا وَبَارِكْ لِي فِيمَا أَعْطَيْتَنِي",
+  },
+  {
+    text: "يَا مُجِيبَ الدُّعَاءِ", label: "يا مجيب الدعاء",
+    theme: "الدعاء باليقين التام بالإجابة واللجوء لمجيب الدعوات",
+    example: "يَا مُجِيبَ الدُّعَاءِ أَجِبْ دُعَائِي وَلَا تَرُدَّنِي خَائِبًا",
+  },
 ];
 
 function pickRandomOpening() {
@@ -1812,31 +1921,19 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   const maxWords = 20;
   addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
 
-  const themes = [
-    "استغفار وطلب المغفرة",
-    "حمد الله وشكره",
-    "التضرع والخشوع",
-    "الرجاء في رحمة الله",
-    "طلب الهداية والتوفيق",
-    "الدعاء بالعافية والصحة",
-    "التوكل على الله",
-    "طلب البركة في الرزق",
-    "الدعاء للوالدين",
-    "طلب الثبات على الدين",
-  ];
-  const randomTheme = themes[Math.floor(Math.random() * themes.length)];
   const opening = pickRandomOpening();
-  addLog(`🎲 الأسلوب: ${randomTheme} | البداية: ${opening.label}`, "info");
+  addLog(`🎲 البداية: ${opening.label} | الموضوع: ${opening.theme.slice(0, 40)}`, "info");
 
-  const prompt = `اكتب دعاءً إسلامياً بالعربية الفصحى موضوعه: ${randomTheme}.
-شروط صارمة جداً:
-١- يجب أن يكون كل حرف في الدعاء مُشَكَّلاً تشكيلاً كاملاً (فتحة أو كسرة أو ضمة أو سكون أو تنوين أو شدة) بدون استثناء.
+  const prompt = `أنت عالم بالدعاء الإسلامي. اكتب دعاءً إسلامياً مؤثراً بالعربية الفصحى.
+موضوع الدعاء: ${opening.theme}
+الشروط الصارمة:
+١- يجب أن يكون كل حرف مُشَكَّلاً تشكيلاً كاملاً (فتحة، كسرة، ضمة، سكون، تنوين، شدة) بدون أي استثناء.
 ٢- عدد الكلمات: بين خمس عشرة وعشرين كلمة فقط.
-٣- يجب أن يبدأ الدعاء بالكلمة أو العبارة: «${opening.text}» — ابدأ بها مباشرةً دون أي مقدمة.
-٤- اكتب نص الدعاء المُشَكَّل فقط — لا مقدمة ولا شرح.
-مثال على التشكيل الكامل المطلوب:
-"اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً"
-الدعاء المُشَكَّل (يبدأ بـ ${opening.text}):`;
+٣- يجب أن يبدأ الدعاء بالعبارة «${opening.text}» مباشرةً — ابدأ بها وانسجم معها في باقي الدعاء ليكون متناسقاً ومؤثراً.
+٤- اكتب نص الدعاء المُشَكَّل فقط — لا مقدمة ولا شرح ولا علامات اقتباس.
+مثال مرجعي على الأسلوب المطلوب:
+${opening.example}
+الدعاء المُشَكَّل (يبدأ بـ «${opening.text}»):`;
 
   const fallbackChain = [
     "gemini-2.5-flash-preview-04-17",
@@ -1898,7 +1995,7 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   if (groqKey) {
     addLog("🔄 الانتقال إلى Groq...", "processing");
     try {
-      return await generateDuaaWithGroq(groqKey, minWords, maxWords, randomTheme);
+      return await generateDuaaWithGroq(groqKey, minWords, maxWords, opening);
     } catch (groqErr) {
       const msg = groqErr instanceof Error ? groqErr.message : String(groqErr);
       addLog(`❌ فشل Groq: ${msg.slice(0, 60)}`, "error");

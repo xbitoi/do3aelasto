@@ -249,6 +249,8 @@ components:
           type: string
         ttsSpeed:
           type: boolean
+        ttsVoice:
+          type: string
         duaaStyle:
           type: string
         videoQuality:
@@ -257,6 +259,8 @@ components:
           type: integer
         showBackground:
           type: boolean
+        geminiModel:
+          type: string
       required:
         - font
         - fontSize
@@ -266,4 +270,5 @@ components:
         - textColor
         - activeColor
         - ttsSpeed
+        - ttsVoice
         - duaaStyle

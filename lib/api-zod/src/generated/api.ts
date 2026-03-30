@@ -80,10 +80,12 @@ export const GetSettingsResponse = zod.object({
   textColor: zod.string(),
   activeColor: zod.string(),
   ttsSpeed: zod.boolean(),
+  ttsVoice: zod.string(),
   duaaStyle: zod.string(),
   videoQuality: zod.string().optional(),
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
+  geminiModel: zod.string().optional(),
 });
 
 /**
@@ -98,10 +100,12 @@ export const UpdateSettingsBody = zod.object({
   textColor: zod.string(),
   activeColor: zod.string(),
   ttsSpeed: zod.boolean(),
+  ttsVoice: zod.string(),
   duaaStyle: zod.string(),
   videoQuality: zod.string().optional(),
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
+  geminiModel: zod.string().optional(),
 });
 
 export const UpdateSettingsResponse = zod.object({
@@ -113,8 +117,10 @@ export const UpdateSettingsResponse = zod.object({
   textColor: zod.string(),
   activeColor: zod.string(),
   ttsSpeed: zod.boolean(),
+  ttsVoice: zod.string(),
   duaaStyle: zod.string(),
   videoQuality: zod.string().optional(),
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
+  geminiModel: zod.string().optional(),
 });

@@ -158,6 +158,73 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                {label: "توكل وثقة", value: "توكل وثقة"}
              ]} />
 
+             {/* Voice selection */}
+             <div className="space-y-2">
+               <label className="text-xs font-bold text-foreground/80 flex items-center gap-1.5">
+                 <Mic2 className="w-3.5 h-3.5 text-primary" />
+                 الصوت المُستخدم
+               </label>
+               <div className="space-y-1.5">
+                 <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest">أصوات ذكور — عميقة للخشوع</p>
+                 <div className="grid grid-cols-1 gap-1.5">
+                   {[
+                     { value: "ar-SA-HamedNeural",  label: "حامد", desc: "سعودي — غليظ خاشع (الافتراضي)" },
+                     { value: "ar-EG-ShakirNeural",  label: "شاكر", desc: "مصري — رنّان دافئ" },
+                     { value: "ar-KW-FahedNeural",   label: "فهد",  desc: "خليجي — هادئ وقور" },
+                     { value: "ar-IQ-BasselNeural",  label: "باسل", desc: "عراقي — عميق مؤثر" },
+                   ].map((v) => (
+                     <button
+                       key={v.value}
+                       onClick={() => setSettings({...settings, ttsVoice: v.value})}
+                       className={cn(
+                         "flex items-center gap-3 w-full text-right px-3 py-2 rounded-xl border transition-all text-sm",
+                         (settings.ttsVoice || "ar-SA-HamedNeural") === v.value
+                           ? "border-primary bg-primary/15 text-foreground shadow-[0_0_12px_rgba(99,102,241,0.2)]"
+                           : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                       )}
+                     >
+                       <span className={cn("text-lg", (settings.ttsVoice || "ar-SA-HamedNeural") === v.value ? "opacity-100" : "opacity-40")}>🎙️</span>
+                       <span className="flex flex-col items-start">
+                         <span className="font-black text-sm">{v.label}</span>
+                         <span className="text-[11px] opacity-70">{v.desc}</span>
+                       </span>
+                       {(settings.ttsVoice || "ar-SA-HamedNeural") === v.value && (
+                         <span className="mr-auto text-primary text-xs font-black">✓</span>
+                       )}
+                     </button>
+                   ))}
+                 </div>
+
+                 <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest pt-1">أصوات إناث</p>
+                 <div className="grid grid-cols-1 gap-1.5">
+                   {[
+                     { value: "ar-EG-SalmaNeural",   label: "سلمى",  desc: "مصرية — ناعمة خاشعة" },
+                     { value: "ar-SA-ZariyahNeural",  label: "زارية", desc: "سعودية — هادئة روحانية" },
+                   ].map((v) => (
+                     <button
+                       key={v.value}
+                       onClick={() => setSettings({...settings, ttsVoice: v.value})}
+                       className={cn(
+                         "flex items-center gap-3 w-full text-right px-3 py-2 rounded-xl border transition-all text-sm",
+                         settings.ttsVoice === v.value
+                           ? "border-pink-500/60 bg-pink-500/10 text-foreground shadow-[0_0_12px_rgba(236,72,153,0.15)]"
+                           : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                       )}
+                     >
+                       <span className={cn("text-lg", settings.ttsVoice === v.value ? "opacity-100" : "opacity-40")}>🎤</span>
+                       <span className="flex flex-col items-start">
+                         <span className="font-black text-sm">{v.label}</span>
+                         <span className="text-[11px] opacity-70">{v.desc}</span>
+                       </span>
+                       {settings.ttsVoice === v.value && (
+                         <span className="mr-auto text-pink-400 text-xs font-black">✓</span>
+                       )}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             </div>
+
              <div className="pt-3 border-t border-border/50 space-y-2">
                <div className="flex items-center justify-between gap-2">
                  <label className="text-xs font-bold text-foreground/80 flex items-center gap-1.5">

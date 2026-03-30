@@ -15,8 +15,10 @@ export interface AppSettings {
   textColor: string;
   activeColor: string;
   ttsSpeed: boolean;
+  ttsVoice: string;
   duaaStyle: string;
   videoQuality?: string;
   bgOpacity?: number;
   showBackground?: boolean;
+  geminiModel?: string;
 }

@@ -28,6 +28,7 @@ export interface AppSettings {
   textColor: string;
   activeColor: string;
   ttsSpeed: boolean;
+  ttsVoice: string;
   duaaStyle: string;
   videoQuality: string;
   bgOpacity: number;
@@ -44,6 +45,7 @@ export const defaultSettings: AppSettings = {
   textColor: "#FFFFFF",
   activeColor: "#3B82F6",
   ttsSpeed: false,
+  ttsVoice: "ar-SA-HamedNeural",
   duaaStyle: "تضرع وخشوع",
   videoQuality: "fast",
   bgOpacity: 40,
@@ -233,7 +235,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
 
     addLog("🔊 تحويل الدعاء لصوت...", "processing");
     const audioPath = path.join(tmpDir, "audio.mp3");
-    await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration);
+    await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration, settings.ttsVoice || "ar-SA-HamedNeural");
 
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🎬 تراكب النص والصوت على الفيديو...",
@@ -488,15 +490,40 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   throw new Error("فشل توليد الدعاء من جميع النماذج المتاحة.");
 }
 
-async function generateTTS(text: string, outputPath: string, slow: boolean, videoDuration?: number) {
-  // Generate TTS using gTTS
-  const escapedText = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  const speed = slow ? "slow=True" : "slow=False";
+async function generateTTS(text: string, outputPath: string, slow: boolean, videoDuration?: number, voice = "ar-SA-HamedNeural") {
   const rawPath = outputPath.replace(".mp3", "_raw.mp3");
 
-  await execAsync(
-    `python3 -c "from gtts import gTTS; gTTS(text='${escapedText}', lang='ar', ${speed}).save('${rawPath}')"`
-  );
+  // Use edge-tts when a Neural voice is selected, fall back to gTTS for "gtts"
+  if (voice && voice !== "gtts") {
+    addLog(`🎙️ توليد الصوت بـ Edge TTS: ${voice}`, "processing");
+    const txtFile = rawPath + ".txt";
+    fs.writeFileSync(txtFile, text, "utf8");
+    try {
+      await execAsync(
+        `python3 -c "
+import asyncio, edge_tts, sys
+async def run():
+    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:
+        txt = f.read()
+    rate = '-10%' if ${slow ? "True" : "False"} else '+0%'
+    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)
+    await com.save(${JSON.stringify(rawPath)})
+asyncio.run(run())
+"`,
+        { timeout: 60000 }
+      );
+    } finally {
+      try { fs.unlinkSync(txtFile); } catch {}
+    }
+  } else {
+    // gTTS fallback
+    addLog(`🎙️ توليد الصوت بـ gTTS`, "processing");
+    const escapedText = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const speed = slow ? "slow=True" : "slow=False";
+    await execAsync(
+      `python3 -c "from gtts import gTTS; gTTS(text='${escapedText}', lang='ar', ${speed}).save('${rawPath}')"`
+    );
+  }
 
   if (!videoDuration) {
     fs.renameSync(rawPath, outputPath);

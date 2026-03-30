@@ -6,11 +6,11 @@ import time
 import logging
 import shutil
 from pathlib import Path
-from typing import Callable, Optional, Dict, List
+from typing import Callable, Optional, Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
-VIDEO_COLLECT_TIMEOUT = 12
+START_KEYWORDS = {"ابدا", "ابدأ", "abda", "ABDA", "ابدأ"}
 
 
 class TelegramBotManager:
@@ -24,9 +24,9 @@ class TelegramBotManager:
         self._app = None
         self._stop_event = threading.Event()
 
+        self._multi_mode: Set[int] = set()
         self._video_queues: Dict[int, List[str]] = {}
         self._video_tmpdirs: Dict[int, str] = {}
-        self._video_timers: Dict[int, asyncio.TimerHandle] = {}
         self._video_counts: Dict[int, int] = {}
         self._status_msgs: Dict[int, object] = {}
 
@@ -95,13 +95,15 @@ class TelegramBotManager:
         welcome_msg = (
             "🌟 *أهلاً وسهلاً!*\n\n"
             "أنا بوت الدعاء الذكي 🤲\n\n"
-            "📌 *كيف أعمل:*\n"
-            "• أرسل لي فيديو واحد أو أكثر\n"
-            "• يمكنك إرسال عدة فيديوهات تباعاً (12 ثانية للانتظار)\n"
-            "• سيتم دمجها بتأثيرات انتقالية احترافية\n"
-            "• سأولّد دعاءً بالتشكيل بالذكاء الاصطناعي\n"
-            "• سأضع الدعاء على الفيديو مع الصوت والمزامنة!\n\n"
-            "🎬 *جرّب الآن - أرسل فيديو أو عدة فيديوهات!*"
+            "📌 *كيف أعمل:*\n\n"
+            "▫️ *فيديو واحد:*\n"
+            "   أرسل فيديو مباشرة ← يُعالج فوراً بدعاء\n\n"
+            "▫️ *دمج عدة فيديوهات:*\n"
+            "   ١. أرسل *ابدا* ← لتفعيل وضع الدمج\n"
+            "   ٢. أرسل فيديوهاتك مرقمة\n"
+            "   ٣. أرسل *ابدا* مرة أخرى ← لبدء الدمج\n"
+            "   🎞 يُدمج الكل بتأثيرات انتقالية ودعاء مُولَّد\n\n"
+            "🎬 *جرّب الآن!*"
         )
         await update.message.reply_text(welcome_msg, parse_mode="Markdown")
         self.log(f"👤 مستخدم جديد: {update.effective_user.first_name}", "info")
@@ -109,13 +111,15 @@ class TelegramBotManager:
     async def _handle_help(self, update, context):
         help_msg = (
             "📖 *مساعدة - بوت الدعاء الذكي*\n\n"
-            "🎬 أرسل فيديو واحد أو عدة فيديوهات\n"
-            "⏱ انتظر 12 ثانية بعد آخر فيديو للمعالجة\n"
-            "✂️ تأثيرات انتقالية عشوائية بين المقاطع\n"
-            "🤖 سيولد Gemini دعاءً بالتشكيل\n"
-            "🔊 يُحوّل الدعاء لصوت عربي\n"
-            "📝 يُراكَب النص على الفيديو\n"
-            "💙 الكلمات تُضاء بالتزامن مع الصوت\n\n"
+            "*وضع الفيديو الواحد:*\n"
+            "🎬 أرسل فيديو مباشرة ← معالجة فورية\n\n"
+            "*وضع دمج الفيديوهات:*\n"
+            "١. أرسل *ابدا* ← يبدأ جلسة الدمج\n"
+            "٢. أرسل فيديوهاتك الواحد تلو الآخر\n"
+            "٣. أرسل *ابدا* ثانية ← يدمج ويضيف الدعاء\n\n"
+            "🤖 Gemini يولد الدعاء\n"
+            "🔊 صوت عربي مُتزامن مع النص\n"
+            "✨ تأثيرات انتقالية واحترافية\n\n"
             "⚡ *أوامر:*\n"
             "/start - بدء التشغيل\n"
             "/help - المساعدة"
@@ -123,38 +127,79 @@ class TelegramBotManager:
         await update.message.reply_text(help_msg, parse_mode="Markdown")
 
     async def _handle_text(self, update, context):
-        await update.message.reply_text(
-            "🎬 الرجاء إرسال فيديو أو عدة فيديوهات لأقوم بمعالجتها!\n\n"
-            "💡 يمكنك إرسال عدة فيديوهات وسيتم دمجها تلقائياً."
-        )
+        message = update.message
+        user = update.effective_user
+        user_id = user.id
+        chat_id = update.effective_chat.id
+        text = (message.text or "").strip()
+
+        if text in START_KEYWORDS:
+            if user_id in self._multi_mode:
+                videos = self._video_queues.get(user_id, [])
+                if not videos:
+                    await message.reply_text(
+                        "⚠️ لم ترسل أي فيديوهات بعد!\n\n"
+                        "أرسل فيديوهاتك أولاً ثم أرسل *ابدا* مرة أخرى.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                self._multi_mode.discard(user_id)
+
+                count = len(videos)
+                status_msg = await message.reply_text(
+                    f"⏳ *جاري المعالجة...*\n\n"
+                    f"🎬 تم استلام {count} فيديو\n"
+                    f"🔄 بدء الدمج...",
+                    parse_mode="Markdown"
+                )
+                self._status_msgs[user_id] = status_msg
+
+                asyncio.ensure_future(
+                    self._process_collected_videos(user_id, chat_id, user.first_name, context)
+                )
+            else:
+                self._multi_mode.add(user_id)
+                self._video_queues[user_id] = []
+                tmpdir = tempfile.mkdtemp()
+                self._video_tmpdirs[user_id] = tmpdir
+                self._video_counts[user_id] = 0
+
+                await message.reply_text(
+                    "🎬 *وضع دمج الفيديوهات مفعّل!*\n\n"
+                    "أرسل فيديوهاتك الآن مرقمة واحداً تلو الآخر\n"
+                    "ثم أرسل *ابدا* مرة أخرى لبدء الدمج.",
+                    parse_mode="Markdown"
+                )
+                self.log(f"▶️ {user.first_name} بدأ جلسة دمج", "info")
+        else:
+            await message.reply_text(
+                "🎬 أرسل فيديو مباشرة للمعالجة الفورية\n"
+                "أو أرسل *ابدا* لبدء وضع دمج عدة فيديوهات.",
+                parse_mode="Markdown"
+            )
 
     async def _handle_video(self, update, context):
         message = update.message
         user = update.effective_user
+        user_id = user.id
         chat_id = update.effective_chat.id
+
+        if user_id in self._multi_mode:
+            await self._collect_video(update, context)
+        else:
+            await self._process_single_video(update, context)
+
+    async def _collect_video(self, update, context):
+        message = update.message
+        user = update.effective_user
         user_id = user.id
 
-        self.log(f"📥 استقبال فيديو من: {user.first_name}", "info")
+        tmpdir = self._video_tmpdirs.get(user_id)
+        if not tmpdir:
+            return
 
-        if user_id not in self._video_queues:
-            self._video_queues[user_id] = []
-            tmpdir = tempfile.mkdtemp()
-            self._video_tmpdirs[user_id] = tmpdir
-            self._video_counts[user_id] = 0
-
-            status_msg = await message.reply_text(
-                "📥 *استقبال الفيديوهات...*\n\n"
-                f"🎬 فيديو 1 تم استلامه\n"
-                f"⏱ انتظار {VIDEO_COLLECT_TIMEOUT} ثانية للمزيد أو المعالجة التلقائية...",
-                parse_mode="Markdown"
-            )
-            self._status_msgs[user_id] = status_msg
-        else:
-            if user_id in self._video_timers:
-                self._video_timers[user_id].cancel()
-
-        tmpdir = self._video_tmpdirs[user_id]
-        self._video_counts[user_id] += 1
+        self._video_counts[user_id] = self._video_counts.get(user_id, 0) + 1
         count = self._video_counts[user_id]
 
         if message.video:
@@ -167,64 +212,154 @@ class TelegramBotManager:
         await file_obj.download_to_drive(video_path)
         self._video_queues[user_id].append(video_path)
 
-        self.log(f"✅ تم تحميل الفيديو {count} للمستخدم {user.first_name}", "success")
+        self.log(f"📥 فيديو {count} للمستخدم {user.first_name}", "info")
 
-        if count > 1:
-            status_msg = self._status_msgs.get(user_id)
-            if status_msg:
-                try:
-                    await status_msg.edit_text(
-                        f"📥 *استقبال الفيديوهات...*\n\n"
-                        f"🎬 تم استلام {count} فيديوهات\n"
-                        f"⏱ انتظار {VIDEO_COLLECT_TIMEOUT} ثانية للمزيد أو المعالجة التلقائية...\n"
-                        f"✨ سيتم دمجها بتأثيرات انتقالية احترافية!",
+        await message.reply_text(
+            f"✅ *فيديو {count} تم استلامه*\n\n"
+            "أرسل المزيد أو أرسل *ابدا* للبدء بالدمج.",
+            parse_mode="Markdown"
+        )
+
+    async def _process_single_video(self, update, context):
+        message = update.message
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        self.log(f"📥 فيديو واحد من: {user.first_name}", "info")
+
+        status_msg = await message.reply_text(
+            "⏳ *جاري المعالجة...*\n\n"
+            "🤖 توليد الدعاء بالذكاء الاصطناعي...",
+            parse_mode="Markdown"
+        )
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmpdir_path = Path(tmpdir)
+
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    "📥 تحميل الفيديو...",
+                    parse_mode="Markdown"
+                )
+
+                if message.video:
+                    file_obj = await context.bot.get_file(message.video.file_id)
+                    duration = message.video.duration
+                else:
+                    file_obj = await context.bot.get_file(message.document.file_id)
+                    duration = 10
+
+                video_path = tmpdir_path / "input_video.mp4"
+                await file_obj.download_to_drive(str(video_path))
+                self.log(f"✅ تم تحميل الفيديو ({duration}s)", "success")
+
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    "🤖 توليد الدعاء بـ Gemini AI...",
+                    parse_mode="Markdown"
+                )
+
+                from ai_processor import generate_duaa
+                duaa_text = await generate_duaa(
+                    self.gemini_key,
+                    duration,
+                    self.settings.get("duaa_style", "تضرع وخشوع")
+                )
+                self.log(f"✅ الدعاء: {duaa_text[:40]}...", "success")
+
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    "🔊 تحويل الدعاء لصوت...",
+                    parse_mode="Markdown"
+                )
+
+                from ai_processor import text_to_speech
+                audio_path = tmpdir_path / "duaa_audio.mp3"
+                word_timings = await text_to_speech(
+                    duaa_text,
+                    str(audio_path),
+                    slow=self.settings.get("tts_speed", False)
+                )
+                self.log("✅ تم توليد الصوت", "success")
+
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    "🎬 تراكب النص والصوت على الفيديو...",
+                    parse_mode="Markdown"
+                )
+
+                from video_processor import merge_and_process_videos
+                output_path = tmpdir_path / "output_video.mp4"
+                await merge_and_process_videos(
+                    video_paths=[str(video_path)],
+                    audio_path=str(audio_path),
+                    duaa_text=duaa_text,
+                    word_timings=word_timings,
+                    output_path=str(output_path),
+                    settings=self.settings
+                )
+                self.log("✅ تم معالجة الفيديو", "success")
+
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    "📤 إرسال الفيديو النهائي...",
+                    parse_mode="Markdown"
+                )
+
+                caption = (
+                    f"🤲 *{duaa_text}*\n\n"
+                    "━━━━━━━━━━━━━━━\n"
+                    "🤖 _توليد بالذكاء الاصطناعي Gemini_"
+                )
+
+                with open(str(output_path), 'rb') as video_file:
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=video_file,
+                        caption=caption,
                         parse_mode="Markdown"
                     )
-                except Exception:
-                    pass
 
-        loop = asyncio.get_event_loop()
-        timer = loop.call_later(
-            VIDEO_COLLECT_TIMEOUT,
-            lambda: asyncio.ensure_future(
-                self._process_collected_videos(user_id, chat_id, user.first_name, context),
-                loop=loop
-            )
-        )
-        self._video_timers[user_id] = timer
+                await status_msg.delete()
+                self.settings["processed_count"] = self.settings.get("processed_count", 0) + 1
+                self.log(f"🎉 تم إرسال الفيديو بنجاح لـ {user.first_name}", "success")
+
+        except Exception as e:
+            error_msg = str(e)
+            self.log(f"❌ خطأ: {error_msg}", "error")
+            try:
+                await status_msg.edit_text(
+                    f"❌ *حدث خطأ أثناء المعالجة*\n\n"
+                    f"التفاصيل: `{error_msg[:200]}`\n\n"
+                    "الرجاء المحاولة مرة أخرى.",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
 
     async def _process_collected_videos(self, user_id: int, chat_id: int, user_name: str, context):
         video_paths = self._video_queues.pop(user_id, [])
         tmpdir = self._video_tmpdirs.pop(user_id, None)
         self._video_counts.pop(user_id, None)
-        self._video_timers.pop(user_id, None)
         status_msg = self._status_msgs.pop(user_id, None)
 
         if not video_paths:
             return
 
         count = len(video_paths)
-        self.log(f"🎬 بدء معالجة {count} فيديو للمستخدم {user_name}", "info")
+        self.log(f"🎬 معالجة {count} فيديو للمستخدم {user_name}", "info")
 
         try:
-            if status_msg:
-                clip_info = f"{count} مقاطع" if count > 1 else "مقطع واحد"
-                transition_info = "\n🎞 تأثيرات انتقالية عشوائية بين المقاطع..." if count > 1 else ""
-                await status_msg.edit_text(
-                    f"⏳ *جاري المعالجة...*\n\n"
-                    f"🎬 دمج {clip_info}...{transition_info}",
-                    parse_mode="Markdown"
-                )
-
-            total_duration = 0
+            last_video_path = video_paths[-1]
+            last_duration = 10
             try:
                 from moviepy.editor import VideoFileClip
-                for vp in video_paths:
-                    c = VideoFileClip(vp)
-                    total_duration += c.duration
-                    c.close()
+                clip = VideoFileClip(last_video_path)
+                last_duration = clip.duration
+                clip.close()
             except Exception:
-                total_duration = count * 10
+                pass
 
             if status_msg:
                 await status_msg.edit_text(
@@ -236,7 +371,7 @@ class TelegramBotManager:
             from ai_processor import generate_duaa
             duaa_text = await generate_duaa(
                 self.gemini_key,
-                total_duration,
+                last_duration,
                 self.settings.get("duaa_style", "تضرع وخشوع")
             )
             self.log(f"✅ الدعاء: {duaa_text[:40]}...", "success")
@@ -258,19 +393,12 @@ class TelegramBotManager:
             self.log("✅ تم توليد الصوت", "success")
 
             if status_msg:
-                if count > 1:
-                    await status_msg.edit_text(
-                        "⏳ *جاري المعالجة...*\n\n"
-                        f"🎞 دمج {count} مقاطع بتأثيرات انتقالية...\n"
-                        "📝 تراكب النص والصوت...",
-                        parse_mode="Markdown"
-                    )
-                else:
-                    await status_msg.edit_text(
-                        "⏳ *جاري المعالجة...*\n\n"
-                        "🎬 تراكب النص والصوت على الفيديو...",
-                        parse_mode="Markdown"
-                    )
+                await status_msg.edit_text(
+                    "⏳ *جاري المعالجة...*\n\n"
+                    f"🎞 دمج {count} مقاطع بتأثيرات انتقالية...\n"
+                    "📝 تراكب النص والصوت...",
+                    parse_mode="Markdown"
+                )
 
             from video_processor import merge_and_process_videos
             output_path = os.path.join(tmpdir, "output_video.mp4")
@@ -282,7 +410,7 @@ class TelegramBotManager:
                 output_path=output_path,
                 settings=self.settings
             )
-            self.log("✅ تم معالجة الفيديو", "success")
+            self.log("✅ تم معالجة الفيديوهات", "success")
 
             if status_msg:
                 await status_msg.edit_text(
@@ -308,16 +436,12 @@ class TelegramBotManager:
             if status_msg:
                 await status_msg.delete()
 
-            if "processed_count" not in self.settings:
-                self.settings["processed_count"] = 0
             self.settings["processed_count"] = self.settings.get("processed_count", 0) + 1
-
-            self.log(f"🎉 تم إرسال الفيديو بنجاح لـ {user_name}", "success")
+            self.log(f"🎉 تم إرسال الفيديو المدموج لـ {user_name}", "success")
 
         except Exception as e:
             error_msg = str(e)
-            self.log(f"❌ خطأ في المعالجة: {error_msg}", "error")
-
+            self.log(f"❌ خطأ: {error_msg}", "error")
             try:
                 if status_msg:
                     await status_msg.edit_text(
@@ -333,7 +457,6 @@ class TelegramBotManager:
                     )
             except Exception:
                 pass
-
         finally:
             if tmpdir and os.path.exists(tmpdir):
                 shutil.rmtree(tmpdir, ignore_errors=True)

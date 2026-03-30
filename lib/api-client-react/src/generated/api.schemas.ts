@@ -80,4 +80,10 @@ export interface AppSettings {
   wordEffect?: string;
   transitionEffect?: string;
   transitionDuration?: number;
+  youtubeToken?: string;
+  youtubeClientId?: string;
+  youtubeClientSecret?: string;
+  facebookToken?: string;
+  tiktokToken?: string;
+  publishDescription?: string;
 }

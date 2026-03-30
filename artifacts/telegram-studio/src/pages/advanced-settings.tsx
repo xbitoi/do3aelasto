@@ -74,6 +74,55 @@ function SocialTokenSection({ label, icon: Icon, value, onChange, onTest, testin
   );
 }
 
+function YouTubeTokenSection({ refreshToken, clientId, clientSecret, onChangeRefresh, onChangeClientId, onChangeClientSecret, onTest, testing, testResult }: {
+  refreshToken: string; clientId: string; clientSecret: string;
+  onChangeRefresh: (v: string) => void; onChangeClientId: (v: string) => void; onChangeClientSecret: (v: string) => void;
+  onTest: () => void; testing: boolean; testResult?: { loading: boolean; success?: boolean; info?: string };
+}) {
+  return (
+    <div className="space-y-3 p-4 bg-black/20 rounded-2xl border border-border/40">
+      <div className="flex items-center gap-2">
+        <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+        <span className="text-sm font-bold text-foreground">يوتيوب (OAuth2)</span>
+        {testResult?.success === true && (
+          <span className="mr-auto flex items-center gap-1 text-[11px] text-green-400 font-bold">
+            <CheckCircle2 className="w-3 h-3" /> {testResult.info}
+          </span>
+        )}
+        {testResult?.success === false && (
+          <span className="mr-auto flex items-center gap-1 text-[11px] text-red-400 font-bold">
+            <XCircle className="w-3 h-3" /> فشل الاتصال
+          </span>
+        )}
+      </div>
+      <div className="space-y-2">
+        <div>
+          <label className="text-[10px] font-bold text-foreground/50 uppercase tracking-wider block mb-1">Refresh Token</label>
+          <input type="password" placeholder="1//04Q1dan-..." value={refreshToken} onChange={(e) => onChangeRefresh(e.target.value)} dir="ltr"
+            className="w-full bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-xs font-mono shadow-inner placeholder:text-muted-foreground/40" />
+        </div>
+        <div>
+          <label className="text-[10px] font-bold text-foreground/50 uppercase tracking-wider block mb-1">Client ID</label>
+          <input type="password" placeholder="xxxxx.apps.googleusercontent.com" value={clientId} onChange={(e) => onChangeClientId(e.target.value)} dir="ltr"
+            className="w-full bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-xs font-mono shadow-inner placeholder:text-muted-foreground/40" />
+        </div>
+        <div>
+          <label className="text-[10px] font-bold text-foreground/50 uppercase tracking-wider block mb-1">Client Secret</label>
+          <input type="password" placeholder="GOCSPX-..." value={clientSecret} onChange={(e) => onChangeClientSecret(e.target.value)} dir="ltr"
+            className="w-full bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-xs font-mono shadow-inner placeholder:text-muted-foreground/40" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={onTest} disabled={!refreshToken || !clientId || !clientSecret || testing}
+          className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-50 whitespace-nowrap">
+          {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : "اختبار الاتصال"}
+        </button>
+        <p className="text-[10px] text-muted-foreground/40 leading-relaxed text-left">من Google Cloud Console</p>
+      </div>
+    </div>
+  );
+}
+
 export function AdvancedSettings() {
   const { data: serverSettings, isLoading } = useGetSettings();
   const { mutate: updateSettings, isPending } = useUpdateSettings();
@@ -151,7 +200,28 @@ export function AdvancedSettings() {
   };
 
   const testSocial = async (platform: "youtube" | "facebook" | "tiktok") => {
-    const token = platform === "youtube" ? settings?.youtubeToken : platform === "facebook" ? settings?.facebookToken : settings?.tiktokToken;
+    if (platform === "youtube") {
+      if (!settings?.youtubeToken || !settings?.youtubeClientId || !settings?.youtubeClientSecret) return;
+      setSocialTests(p => ({ ...p, youtube: { loading: true } }));
+      try {
+        const res = await fetch("/api/social/test-youtube", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: settings.youtubeToken, clientId: settings.youtubeClientId, clientSecret: settings.youtubeClientSecret }),
+        });
+        const data = await res.json() as { success: boolean; channelName?: string; subscribers?: string; error?: string };
+        if (data.success) {
+          const info = (data.channelName || "") + (data.subscribers ? ` (${data.subscribers})` : "");
+          setSocialTests(p => ({ ...p, youtube: { loading: false, success: true, info } }));
+        } else {
+          setSocialTests(p => ({ ...p, youtube: { loading: false, success: false } }));
+        }
+      } catch {
+        setSocialTests(p => ({ ...p, youtube: { loading: false, success: false } }));
+      }
+      return;
+    }
+    const token = platform === "facebook" ? settings?.facebookToken : settings?.tiktokToken;
     if (!token) return;
     setSocialTests(p => ({ ...p, [platform]: { loading: true } }));
     try {
@@ -217,7 +287,7 @@ export function AdvancedSettings() {
           </div>
         </button>
 
-        <div className={cn("overflow-hidden transition-all duration-300", keysOpen ? "max-h-[1000px]" : "max-h-0")}>
+        <div className={cn("overflow-hidden transition-all duration-300", keysOpen ? "max-h-[1400px]" : "max-h-0")}>
           <div className="relative z-10 px-6 sm:px-8 pb-6 sm:pb-8 space-y-6">
 
             {/* Bot credentials */}
@@ -285,15 +355,16 @@ export function AdvancedSettings() {
             {/* Social media tokens */}
             <div className="space-y-4">
               <p className="text-xs font-bold text-foreground/60 uppercase tracking-widest border-b border-border/30 pb-2">منصات التواصل الاجتماعي</p>
-              <SocialTokenSection
-                label="يوتيوب"
-                icon={({ className }: any) => <svg className={className} viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
-                value={settings.youtubeToken || ""}
-                onChange={(v: string) => handleSocialTokenChange("youtubeToken", v)}
+              <YouTubeTokenSection
+                refreshToken={settings.youtubeToken || ""}
+                clientId={settings.youtubeClientId || ""}
+                clientSecret={settings.youtubeClientSecret || ""}
+                onChangeRefresh={(v: string) => handleSocialTokenChange("youtubeToken", v)}
+                onChangeClientId={(v: string) => handleSocialTokenChange("youtubeClientId", v)}
+                onChangeClientSecret={(v: string) => handleSocialTokenChange("youtubeClientSecret", v)}
                 onTest={() => testSocial("youtube")}
-                testing={socialTests.youtube?.loading}
+                testing={socialTests.youtube?.loading ?? false}
                 testResult={socialTests.youtube}
-                hint="OAuth2 Access Token بصلاحية youtube.upload"
               />
               <SocialTokenSection
                 label="فيسبوك"

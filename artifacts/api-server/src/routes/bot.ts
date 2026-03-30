@@ -104,12 +104,12 @@ router.get("/tts-preview", async (req, res) => {
 // ── Social media key testing ──────────────────────────────────────────────
 
 router.post("/social/test-youtube", async (req, res) => {
-  const { token } = req.body as { token: string };
-  if (!token) {
-    res.status(400).json({ success: false, error: "التوكن مطلوب" });
+  const { token, clientId, clientSecret } = req.body as { token: string; clientId: string; clientSecret: string };
+  if (!token || !clientId || !clientSecret) {
+    res.status(400).json({ success: false, error: "Refresh Token و Client ID و Client Secret مطلوبة" });
     return;
   }
-  const result = await testYouTubeToken(token);
+  const result = await testYouTubeToken(token, clientId, clientSecret);
   res.json(result);
 });
 

@@ -41,6 +41,8 @@ export interface AppSettings {
   transitionDuration: number;
   // Social media publishing
   youtubeToken: string;
+  youtubeClientId: string;
+  youtubeClientSecret: string;
   facebookToken: string;
   tiktokToken: string;
   publishDescription: string;
@@ -67,6 +69,8 @@ export const defaultSettings: AppSettings = {
   transitionEffect: "random",
   transitionDuration: 0.5,
   youtubeToken: "",
+  youtubeClientId: "",
+  youtubeClientSecret: "",
   facebookToken: "",
   tiktokToken: "",
   publishDescription: "",
@@ -242,11 +246,37 @@ export async function testBotToken(token: string) {
 
 // ── Social media key testing ──────────────────────────────────────────────
 
-export async function testYouTubeToken(token: string): Promise<{ success: boolean; channelName?: string; channelId?: string; subscribers?: string; error?: string }> {
+async function refreshYouTubeAccessToken(refreshToken: string, clientId: string, clientSecret: string): Promise<{ accessToken?: string; error?: string }> {
   try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+    });
+    const data = await res.json() as { access_token?: string; error?: string; error_description?: string };
+    if (!res.ok || !data.access_token) {
+      return { error: data.error_description || data.error || `فشل تجديد التوكن (${res.status})` };
+    }
+    return { accessToken: data.access_token };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function testYouTubeToken(refreshToken: string, clientId: string, clientSecret: string): Promise<{ success: boolean; channelName?: string; channelId?: string; subscribers?: string; error?: string }> {
+  try {
+    const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+    if (!tokenRes.accessToken) {
+      return { success: false, error: tokenRes.error || "فشل الحصول على access token" };
+    }
     const res = await fetch(
       "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true",
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers: { Authorization: `Bearer ${tokenRes.accessToken}` } }
     );
     if (!res.ok) {
       const err = await res.json() as { error?: { message?: string } };
@@ -254,7 +284,7 @@ export async function testYouTubeToken(token: string): Promise<{ success: boolea
     }
     const data = await res.json() as { items?: Array<{ snippet: { title: string }; id: string; statistics: { subscriberCount: string } }> };
     const ch = data.items?.[0];
-    if (!ch) return { success: false, error: "لم يُعثر على قناة مرتبطة بهذا التوكن" };
+    if (!ch) return { success: false, error: "لم يُعثر على قناة مرتبطة بهذه البيانات" };
     const subs = parseInt(ch.statistics?.subscriberCount || "0");
     const subsStr = subs >= 1000000 ? `${(subs/1000000).toFixed(1)}M` : subs >= 1000 ? `${(subs/1000).toFixed(1)}K` : String(subs);
     return { success: true, channelName: ch.snippet.title, channelId: ch.id, subscribers: subsStr };
@@ -314,9 +344,17 @@ export async function testTikTokToken(token: string): Promise<{ success: boolean
 
 // ── Social media publishing ───────────────────────────────────────────────
 
-async function publishToYouTube(videoPath: string, title: string, description: string, token: string): Promise<{ success: boolean; videoId?: string; url?: string; error?: string }> {
+async function publishToYouTube(videoPath: string, title: string, description: string, refreshToken: string, clientId: string, clientSecret: string): Promise<{ success: boolean; videoId?: string; url?: string; error?: string }> {
   try {
     addLog("📺 رفع الفيديو على يوتيوب...", "processing");
+
+    // Exchange refresh token for access token
+    const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+    if (!tokenRes.accessToken) {
+      return { success: false, error: tokenRes.error || "فشل الحصول على access token" };
+    }
+    const accessToken = tokenRes.accessToken;
+
     const videoBuffer = fs.readFileSync(videoPath);
     const videoSize = videoBuffer.length;
 
@@ -326,7 +364,7 @@ async function publishToYouTube(videoPath: string, title: string, description: s
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
           "X-Upload-Content-Type": "video/mp4",
           "X-Upload-Content-Length": String(videoSize),
@@ -481,7 +519,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     return;
   }
 
-  const hasYT = Boolean(settings.youtubeToken);
+  const hasYT = Boolean(settings.youtubeToken && settings.youtubeClientId && settings.youtubeClientSecret);
   const hasFB = Boolean(settings.facebookToken);
   const hasTT = Boolean(settings.tiktokToken);
 
@@ -511,7 +549,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
   const results: string[] = [];
 
   if (hasYT) {
-    const ytRes = await publishToYouTube(last.videoPath, title, description, settings.youtubeToken);
+    const ytRes = await publishToYouTube(last.videoPath, title, description, settings.youtubeToken, settings.youtubeClientId, settings.youtubeClientSecret);
     if (ytRes.success) {
       results.push(`✅ *يوتيوب:* [مشاهدة الفيديو](${ytRes.url})`);
       addLog(`✅ تم النشر على يوتيوب: ${ytRes.url}`, "success");

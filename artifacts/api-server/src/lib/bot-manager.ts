@@ -390,31 +390,117 @@ async function generateTTS(text: string, outputPath: string, slow: boolean) {
   );
 }
 
-/** Reshape Arabic text using Python arabic_reshaper + bidi for correct ffmpeg rendering */
-async function reshapeArabic(text: string): Promise<string> {
-  const tmpIn = path.join(os.tmpdir(), `ar_in_${Date.now()}.txt`);
-  const tmpOut = path.join(os.tmpdir(), `ar_out_${Date.now()}.txt`);
-  try {
-    fs.writeFileSync(tmpIn, text, "utf8");
-    await execAsync(
-      `python3 -c "
+/**
+ * Render Arabic text as a transparent PNG using Python Pillow.
+ * This correctly handles Arabic reshaping, bidi, word-wrap, and stroke.
+ */
+async function renderArabicTextPNG(params: {
+  text: string;
+  videoWidth: number;
+  videoHeight: number;
+  fontPath: string;
+  fontSize: number;
+  textColor: string;   // hex "RRGGBB"
+  strokeWidth: number;
+  yRatio: number;      // 0-1 vertical position
+  outputPng: string;
+}): Promise<void> {
+  const scriptPath = path.join(os.tmpdir(), `render_arabic_${Date.now()}.py`);
+  const txtPath = path.join(os.tmpdir(), `arabic_text_${Date.now()}.txt`);
+
+  fs.writeFileSync(txtPath, params.text, "utf8");
+
+  const r = parseInt(params.textColor.slice(0, 2), 16);
+  const g = parseInt(params.textColor.slice(2, 4), 16);
+  const b = parseInt(params.textColor.slice(4, 6), 16);
+
+  const script = `
 import arabic_reshaper
 from bidi.algorithm import get_display
-with open('${tmpIn}', encoding='utf-8') as f:
-    t = f.read().strip()
-reshaped = get_display(arabic_reshaper.reshape(t))
-with open('${tmpOut}', 'w', encoding='utf-8') as f:
-    f.write(reshaped)
-"`
-    );
-    const result = fs.readFileSync(tmpOut, "utf8").trim();
-    return result || text;
-  } catch (e) {
-    logger.warn({ e }, "Arabic reshape failed, using raw text");
-    return text;
+from PIL import Image, ImageDraw, ImageFont
+import sys, textwrap
+
+with open(${JSON.stringify(txtPath)}, encoding='utf-8') as f:
+    text = f.read().strip()
+
+W = ${params.videoWidth}
+H = ${params.videoHeight}
+font_size = ${params.fontSize}
+y_ratio = ${params.yRatio}
+stroke = ${params.strokeWidth}
+text_r, text_g, text_b = ${r}, ${g}, ${b}
+
+try:
+    font = ImageFont.truetype(${JSON.stringify(params.fontPath)}, font_size)
+except Exception:
+    font = ImageFont.load_default()
+
+# Word-wrap: split Arabic text into lines that fit within 90% of video width
+words = text.split()
+lines = []
+current = []
+dummy_img = Image.new('RGBA', (W, H), (0,0,0,0))
+dummy_draw = ImageDraw.Draw(dummy_img)
+
+for word in words:
+    test_line = ' '.join(current + [word])
+    reshaped_test = get_display(arabic_reshaper.reshape(test_line))
+    bbox = dummy_draw.textbbox((0,0), reshaped_test, font=font)
+    if bbox[2] - bbox[0] > W * 0.90 and current:
+        lines.append(' '.join(current))
+        current = [word]
+    else:
+        current.append(word)
+if current:
+    lines.append(' '.join(current))
+
+# Reshape each line for correct RTL display
+display_lines = [get_display(arabic_reshaper.reshape(line)) for line in lines]
+
+# Calculate total text block height
+line_heights = []
+for dl in display_lines:
+    bbox = dummy_draw.textbbox((0,0), dl, font=font)
+    line_heights.append(bbox[3] - bbox[1])
+line_spacing = int(font_size * 0.3)
+total_h = sum(line_heights) + line_spacing * (len(display_lines) - 1)
+
+# Center the block vertically at y_ratio
+block_top = int(H * y_ratio) - total_h // 2
+
+# Draw on transparent canvas
+img = Image.new('RGBA', (W, H), (0,0,0,0))
+draw = ImageDraw.Draw(img)
+
+y_cursor = block_top
+for dl, lh in zip(display_lines, line_heights):
+    bbox = draw.textbbox((0,0), dl, font=font)
+    lw = bbox[2] - bbox[0]
+    x = (W - lw) // 2
+
+    # Shadow
+    draw.text((x+2, y_cursor+2), dl, font=font, fill=(0,0,0,180))
+
+    # Stroke
+    if stroke > 0:
+        for dx in range(-stroke, stroke+1):
+            for dy in range(-stroke, stroke+1):
+                if abs(dx)+abs(dy) <= stroke:
+                    draw.text((x+dx, y_cursor+dy), dl, font=font, fill=(0,0,0,230))
+
+    # Main text
+    draw.text((x, y_cursor), dl, font=font, fill=(text_r, text_g, text_b, 255))
+    y_cursor += lh + line_spacing
+
+img.save(${JSON.stringify(params.outputPng)})
+`;
+
+  fs.writeFileSync(scriptPath, script, "utf8");
+  try {
+    await execAsync(`python3 "${scriptPath}"`, { timeout: 30000 });
   } finally {
-    try { fs.unlinkSync(tmpIn); } catch {}
-    try { fs.unlinkSync(tmpOut); } catch {}
+    try { fs.unlinkSync(scriptPath); } catch {}
+    try { fs.unlinkSync(txtPath); } catch {}
   }
 }
 
@@ -425,34 +511,37 @@ async function processVideoWithText(
   outputPath: string,
   settings: AppSettings
 ) {
-  // 1. Reshape Arabic text properly for ffmpeg
-  const reshapedText = await reshapeArabic(duaaText);
-  addLog(`✅ تم تشكيل النص العربي للعرض`, "info");
-
-  // 2. Get dimensions and durations
-  const [videoH, videoDuration] = await Promise.all([
+  // 1. Get video dimensions and duration
+  const [videoW, videoH, videoDuration] = await Promise.all([
+    getVideoWidth(videoPath),
     getVideoHeight(videoPath),
     getVideoDuration(videoPath),
   ]);
+  addLog(`📐 أبعاد الفيديو: ${videoW}×${videoH} | المدة: ${videoDuration.toFixed(1)}ث`, "info");
 
-  const yPixel = Math.floor((settings.yPosition / 100) * videoH);
   const fontPath = getFontPath(settings.font);
   const textColor = settings.textColor.replace("#", "");
   const fontSize = settings.fontSize;
   const strokeWidth = settings.strokeThickness;
+  const yRatio = settings.yPosition / 100;
 
-  // 3. Escape text for ffmpeg drawtext (write to file to avoid escaping nightmare)
-  const tmpTextFile = path.join(os.tmpdir(), `duaa_${Date.now()}.txt`);
-  fs.writeFileSync(tmpTextFile, reshapedText, "utf8");
+  // 2. Render Arabic text as transparent PNG using Pillow
+  const textPng = path.join(os.tmpdir(), `text_overlay_${Date.now()}.png`);
+  addLog(`🖼️ رسم النص العربي كصورة...`, "processing");
+  await renderArabicTextPNG({
+    text: duaaText,
+    videoWidth: videoW,
+    videoHeight: videoH,
+    fontPath,
+    fontSize,
+    textColor,
+    strokeWidth,
+    yRatio,
+    outputPng: textPng,
+  });
+  addLog(`✅ تم رسم النص بنجاح`, "success");
 
-  const fontFile = fontPath ? `fontfile='${fontPath}':` : "";
-
-  const safeTextFilter = [
-    `drawtext=${fontFile}textfile='${tmpTextFile}':fontsize=${fontSize}:fontcolor=black@0.8:x=(w-text_w)/2+2:y=${yPixel}+2:borderw=0`,
-    `drawtext=${fontFile}textfile='${tmpTextFile}':fontsize=${fontSize}:fontcolor=0x${textColor}:bordercolor=black@0.95:borderw=${strokeWidth}:x=(w-text_w)/2:y=${yPixel}`,
-  ].join(",");
-
-  // 4. Check if video has its own audio stream
+  // 3. Check if video has audio
   let hasAudio = false;
   try {
     const { stdout } = await execAsync(
@@ -461,27 +550,27 @@ async function processVideoWithText(
     hasAudio = stdout.trim().length > 0;
   } catch {}
 
-  // 5. Build ffmpeg command:
-  //    - Keep FULL video duration (no cutting)
-  //    - Original audio at 50% volume
-  //    - TTS audio at 100% (padded with silence to fill video duration)
-  //    - Text overlay for full duration
+  // 4. Build ffmpeg command:
+  //    input 0: original video
+  //    input 1: TTS audio
+  //    input 2: text PNG overlay
+  //    - Overlay PNG on video for full duration
+  //    - Keep FULL original video length (no trimming)
+  //    - Mix original audio at 50% + TTS audio at 100%
   let filterComplex: string;
   let audioMap: string;
 
   if (hasAudio) {
-    // Pad TTS audio with silence to full video duration, then mix with original at 50%
     filterComplex = [
-      `[0:v]${safeTextFilter}[vout]`,
+      `[0:v][2:v]overlay=0:0[vout]`,
       `[1:a]apad=whole_dur=${videoDuration}[tts_full]`,
       `[0:a]volume=0.5[orig_vol]`,
       `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
     ].join(";");
     audioMap = `[aout]`;
   } else {
-    // No original audio — just use TTS padded with silence
     filterComplex = [
-      `[0:v]${safeTextFilter}[vout]`,
+      `[0:v][2:v]overlay=0:0[vout]`,
       `[1:a]apad=whole_dur=${videoDuration}[aout]`,
     ].join(";");
     audioMap = `[aout]`;
@@ -491,13 +580,14 @@ async function processVideoWithText(
     "ffmpeg",
     `-i "${videoPath}"`,
     `-i "${audioPath}"`,
+    `-i "${textPng}"`,
     `-filter_complex "${filterComplex}"`,
     `-map "[vout]"`,
     `-map "${audioMap}"`,
     `-c:v libx264`,
     `-preset ${settings.videoQuality || "fast"}`,
     `-c:a aac`,
-    `-t ${videoDuration}`,   // Keep FULL original video length
+    `-t ${videoDuration}`,
     `-y`,
     `"${outputPath}"`,
   ].join(" ");
@@ -505,7 +595,7 @@ async function processVideoWithText(
   try {
     await execAsync(cmd, { timeout: 180000 });
   } finally {
-    try { fs.unlinkSync(tmpTextFile); } catch {}
+    try { fs.unlinkSync(textPng); } catch {}
   }
 }
 

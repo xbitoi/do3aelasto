@@ -281,7 +281,7 @@ async function downloadFile(url: string, dest: string) {
 
 async function generateDuaa(geminiKey: string, duration: number, style: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(geminiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const styleMap: Record<string, string> = {
     "تضرع وخشوع": "يعبّر عن التضرع والخشوع والانكسار بين يدي الله",

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 import random
 import sys
@@ -6,8 +7,18 @@ import tempfile
 from pathlib import Path
 from typing import List, Tuple
 
-
 TRANSITION_DURATION = 0.7
+
+WORD_EFFECTS = [
+    'fade_smooth',
+    'zoom_pop',
+    'bounce_spring',
+    'slide_up',
+    'slide_down',
+    'swing_right',
+    'glow_pulse',
+    'reveal_rtl',
+]
 
 
 async def merge_and_process_videos(
@@ -39,13 +50,325 @@ async def process_video(
     )
 
 
+def _fade_alpha(t: float, duration: float, fi: float, fo_start: float) -> float:
+    if fi > 0 and t < fi:
+        return t / fi
+    if fo_start < duration and t > fo_start:
+        remaining = duration - fo_start
+        return max(0.0, (duration - t) / remaining) if remaining > 0 else 1.0
+    return 1.0
+
+
+def _scale_rgba_arr(arr, scale: float):
+    from PIL import Image
+    import numpy as np
+    h, w = arr.shape[:2]
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+    img = Image.fromarray(arr.clip(0, 255).astype('uint8'), 'RGBA')
+    scaled = img.resize((new_w, new_h), Image.BILINEAR)
+    result = np.zeros((h, w, 4), dtype=float)
+    x_off = max(0, (w - new_w) // 2)
+    y_off = max(0, (h - new_h) // 2)
+    src_x = max(0, (new_w - w) // 2)
+    src_y = max(0, (new_h - h) // 2)
+    s_arr = np.array(scaled, dtype=float)
+    copy_w = min(new_w - src_x, w - x_off)
+    copy_h = min(new_h - src_y, h - y_off)
+    if copy_w > 0 and copy_h > 0:
+        result[y_off:y_off + copy_h, x_off:x_off + copy_w] = s_arr[src_y:src_y + copy_h, src_x:src_x + copy_w]
+    return result
+
+
+def _shift_rgba_arr(arr, dy: int = 0, dx: int = 0):
+    import numpy as np
+    result = np.zeros_like(arr, dtype=float)
+    h, w = arr.shape[:2]
+    if dy > 0 and dy < h:
+        result[dy:, :] = arr[:h - dy, :]
+    elif dy < 0 and -dy < h:
+        result[:h + dy, :] = arr[-dy:, :]
+    elif dx > 0 and dx < w:
+        result[:, dx:] = arr[:, :w - dx]
+    elif dx < 0 and -dx < w:
+        result[:, :w + dx] = arr[:, -dx:]
+    else:
+        result = arr.astype(float)
+    return result
+
+
+def _apply_word_effect(static_arr, t: float, duration: float, effect: str):
+    import numpy as np
+    result = static_arr.astype(float)
+
+    fi = min(0.25, duration * 0.3)
+    fo_start = max(0.0, duration - min(0.25, duration * 0.3))
+
+    if effect == 'fade_smooth':
+        alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+
+    elif effect == 'zoom_pop':
+        if t < fi:
+            progress = t / fi if fi > 0 else 1.0
+            scale = 0.55 + 0.5 * progress
+            alpha = progress
+        elif t < fi + 0.1:
+            overshoot = (t - fi) / 0.1
+            scale = 1.05 - 0.05 * overshoot
+            alpha = 1.0
+        else:
+            scale = 1.0
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if abs(scale - 1.0) > 0.015:
+            result = _scale_rgba_arr(result, scale)
+
+    elif effect == 'bounce_spring':
+        if t < fi + 0.15:
+            progress = t / (fi + 0.15)
+            spring = 1.0 - math.exp(-6 * progress) * math.cos(2 * math.pi * progress * 3.0)
+            scale = max(0.3, min(1.15, 0.3 + 0.85 * spring))
+            alpha = min(1.0, progress * 2.5)
+        else:
+            scale = 1.0
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if abs(scale - 1.0) > 0.015:
+            result = _scale_rgba_arr(result, scale)
+
+    elif effect == 'slide_up':
+        if t < fi:
+            progress = t / fi if fi > 0 else 1.0
+            eased = 1.0 - (1.0 - progress) ** 2
+            dy = int(35 * (1.0 - eased))
+            alpha = progress
+        else:
+            dy = 0
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if dy != 0:
+            result = _shift_rgba_arr(result, dy=dy)
+
+    elif effect == 'slide_down':
+        if t < fi:
+            progress = t / fi if fi > 0 else 1.0
+            eased = 1.0 - (1.0 - progress) ** 2
+            dy = int(-35 * (1.0 - eased))
+            alpha = progress
+        else:
+            dy = 0
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if dy != 0:
+            result = _shift_rgba_arr(result, dy=dy)
+
+    elif effect == 'swing_right':
+        if t < fi:
+            progress = t / fi if fi > 0 else 1.0
+            swing = math.sin(progress * math.pi * 0.5)
+            dx = int(50 * (1.0 - swing))
+            scale = 0.8 + 0.2 * progress
+            alpha = progress
+        else:
+            dx = 0
+            scale = 1.0
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if dx != 0:
+            result = _shift_rgba_arr(result, dx=-dx)
+        if abs(scale - 1.0) > 0.015:
+            result = _scale_rgba_arr(result, scale)
+
+    elif effect == 'glow_pulse':
+        alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+        if t >= fi and t <= fo_start:
+            pulse = 1.0 + 0.18 * math.sin(2 * math.pi * t * 2.2)
+            bright_mask = static_arr[:, :, 3] > 60
+            result[bright_mask, 0] = np.clip(result[bright_mask, 0] * pulse, 0, 255)
+            result[bright_mask, 1] = np.clip(result[bright_mask, 1] * pulse, 0, 255)
+            result[bright_mask, 2] = np.clip(result[bright_mask, 2] * pulse, 0, 255)
+
+    elif effect == 'reveal_rtl':
+        h_arr, w_arr = result.shape[:2]
+        if t < fi:
+            progress = t / fi if fi > 0 else 1.0
+            eased = progress ** 0.6
+            reveal_cols = int(w_arr * eased)
+            mask = np.zeros((h_arr, w_arr), dtype=float)
+            if reveal_cols > 0:
+                start_col = max(0, w_arr - reveal_cols)
+                mask[:, start_col:] = 1.0
+                blend_w = min(20, reveal_cols)
+                for bx in range(blend_w):
+                    col_idx = start_col + bx
+                    if col_idx < w_arr:
+                        mask[:, col_idx] = bx / blend_w
+            result[:, :, 3] *= mask
+        else:
+            alpha = _fade_alpha(t, duration, fi, fo_start)
+            result[:, :, 3] *= alpha
+
+    else:
+        alpha = _fade_alpha(t, duration, fi, fo_start)
+        result[:, :, 3] *= alpha
+
+    return np.clip(result, 0, 255).astype('uint8')
+
+
+def create_animated_word_clip(
+    rgba_arr,
+    effect: str,
+    duration: float,
+    y_pixel: int,
+    fps: float = 24.0
+):
+    from moviepy.editor import VideoClip
+    import numpy as np
+
+    img_h, img_w = rgba_arr.shape[:2]
+
+    _cache_t = [None]
+    _cache_result = [None]
+
+    def _get(t):
+        if _cache_t[0] != t:
+            _cache_t[0] = t
+            _cache_result[0] = _apply_word_effect(rgba_arr, t, duration, effect)
+        return _cache_result[0]
+
+    def make_frame(t):
+        return _get(t)[:, :, :3]
+
+    def make_mask(t):
+        return (_get(t)[:, :, 3] / 255.0)
+
+    clip = VideoClip(make_frame, duration=duration)
+    clip.size = (img_w, img_h)
+
+    mask_clip = VideoClip(make_mask, duration=duration, ismask=True)
+    mask_clip.size = (img_w, img_h)
+
+    clip = clip.set_mask(mask_clip)
+    clip = clip.set_fps(fps)
+    clip = clip.set_position(("center", y_pixel - img_h // 2))
+    return clip
+
+
+def _render_word_pil(
+    word,
+    all_words,
+    active_index,
+    font_path,
+    font_size,
+    video_w,
+    text_color,
+    active_color,
+    stroke_thickness,
+):
+    from PIL import Image, ImageDraw, ImageFont
+    from ai_processor import reshape_arabic
+
+    img_h = font_size * 3
+    img_w = video_w
+
+    img = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    try:
+        if font_path and os.path.exists(font_path):
+            font = ImageFont.truetype(font_path, font_size)
+        else:
+            font = ImageFont.load_default()
+    except Exception:
+        font = ImageFont.load_default()
+
+    full_text = " ".join([w for w, _, _ in all_words])
+    reshaped_full = reshape_arabic(full_text)
+
+    shadow_offset = max(2, stroke_thickness // 2)
+    draw.text(
+        (img_w // 2 + shadow_offset, img_h // 2 + shadow_offset),
+        reshaped_full, font=font, fill=(0, 0, 0, 180), anchor="mm"
+    )
+
+    if stroke_thickness > 0:
+        for dx in range(-stroke_thickness, stroke_thickness + 1):
+            for dy in range(-stroke_thickness, stroke_thickness + 1):
+                if dx * dx + dy * dy <= stroke_thickness * stroke_thickness:
+                    draw.text(
+                        (img_w // 2 + dx, img_h // 2 + dy),
+                        reshaped_full, font=font, fill=(0, 0, 0, 220), anchor="mm"
+                    )
+
+    draw.text(
+        (img_w // 2, img_h // 2),
+        reshaped_full, font=font, fill=(*text_color, 255), anchor="mm"
+    )
+
+    if active_index >= 0 and active_index < len(all_words):
+        active_word = all_words[active_index][0]
+        reshaped_active = reshape_arabic(active_word)
+
+        words_list = full_text.split()
+        words_before = words_list[:active_index] if active_index > 0 else []
+
+        before_text = " ".join(words_before) + " " if words_before else ""
+
+        try:
+            before_w = draw.textlength(reshape_arabic(before_text), font=font) if before_text.strip() else 0
+            active_w = draw.textlength(reshaped_active, font=font)
+            full_w = draw.textlength(reshaped_full, font=font)
+            start_x = (img_w - full_w) // 2
+
+            active_bg = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            bg_draw = ImageDraw.Draw(active_bg)
+
+            rect_x = start_x + before_w - 6
+            rect_y = img_h // 2 - font_size // 2 - 6
+            rect_x2 = rect_x + active_w + 12
+            rect_y2 = img_h // 2 + font_size // 2 + 6
+
+            bg_draw.rounded_rectangle(
+                [rect_x, rect_y, rect_x2, rect_y2],
+                radius=8,
+                fill=(*active_color, 65),
+                outline=(*active_color, 180),
+                width=2
+            )
+
+            inner_glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            ig_draw = ImageDraw.Draw(inner_glow)
+            ig_draw.rounded_rectangle(
+                [rect_x + 2, rect_y + 2, rect_x2 - 2, rect_y2 - 2],
+                radius=6,
+                fill=(*active_color, 20),
+            )
+
+            img = Image.alpha_composite(img, inner_glow)
+            img = Image.alpha_composite(img, active_bg)
+            draw = ImageDraw.Draw(img)
+
+            draw.text(
+                (start_x + before_w + active_w // 2, img_h // 2),
+                reshaped_active,
+                font=font,
+                fill=(*active_color, 255),
+                anchor="mm"
+            )
+        except Exception:
+            pass
+
+    return img
+
+
 def _make_crossfade(clip1, clip2, duration=TRANSITION_DURATION):
     import numpy as np
     from moviepy.editor import VideoClip
 
     w, h = clip1.size
     dur1 = clip1.duration
-    dur2 = clip2.duration
 
     def make_frame(t):
         progress = t / duration
@@ -207,7 +530,6 @@ def _concatenate_with_transitions(clips):
     if len(clips) == 1:
         return clips[0]
 
-    used_transitions = []
     parts = [clips[0].subclip(0, max(0.1, clips[0].duration - TRANSITION_DURATION))]
 
     for i in range(1, len(clips)):
@@ -220,7 +542,6 @@ def _concatenate_with_transitions(clips):
 
         builder = random.choice(TRANSITION_BUILDERS)
         trans = builder(c1, c2)
-        used_transitions.append(builder)
 
         if i < len(clips) - 1:
             tail = clips[i].subclip(TRANSITION_DURATION, max(TRANSITION_DURATION + 0.1, clips[i].duration - TRANSITION_DURATION))
@@ -243,10 +564,7 @@ def _merge_and_process_sync(
     settings: dict
 ):
     from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, ImageClip, concatenate_videoclips
-    from moviepy.video.fx.all import resize
     import numpy as np
-    from PIL import Image, ImageDraw, ImageFont
-    from ai_processor import reshape_arabic
 
     raw_clips = [VideoFileClip(p) for p in video_paths]
 
@@ -284,13 +602,10 @@ def _merge_and_process_sync(
         if orig_quieter.duration > audio_duration:
             orig_quieter = orig_quieter.subclip(0, audio_duration)
         elif orig_quieter.duration < audio_duration:
-            from moviepy.audio.AudioClip import AudioClip
-            import numpy as np
-            loops = int(audio_duration / orig_quieter.duration) + 1
             from moviepy.editor import concatenate_audioclips
+            loops = int(audio_duration / orig_quieter.duration) + 1
             orig_quieter = concatenate_audioclips([orig_quieter] * loops).subclip(0, audio_duration)
-        combined_audio = CompositeAudioClip([orig_quieter, tts_audio])
-        final_audio = combined_audio
+        final_audio = CompositeAudioClip([orig_quieter, tts_audio])
     else:
         final_audio = tts_audio
 
@@ -305,14 +620,13 @@ def _merge_and_process_sync(
     stroke_thickness = settings.get("stroke_thickness", 3)
     text_color = hex_to_rgb(settings.get("text_color", "#FFFFFF"))
     active_color = hex_to_rgb(settings.get("active_color", "#3B82F6"))
-    line_height = settings.get("line_height", 1.4)
 
     font_path = get_font_path(font_name)
-
     video_w = int(video.w)
     video_h = int(video.h)
-
     y_pixel = int((y_position / 100) * video_h)
+
+    chosen_effect = random.choice(WORD_EFFECTS)
 
     text_clips = []
 
@@ -320,38 +634,51 @@ def _merge_and_process_sync(
         if start_t >= video.duration:
             continue
 
-        active_clip = create_text_frame_clip(
+        word_duration = min(end_t - start_t, video.duration - start_t)
+        if word_duration <= 0:
+            continue
+
+        rgba_img = _render_word_pil(
             word=word,
             all_words=word_timings,
             active_index=i,
             font_path=font_path,
             font_size=font_size,
             video_w=video_w,
-            y_pixel=y_pixel,
             text_color=text_color,
             active_color=active_color,
             stroke_thickness=stroke_thickness,
-            line_height=line_height
         )
+        rgba_arr = np.array(rgba_img)
 
-        active_clip = active_clip.set_start(start_t).set_duration(min(end_t - start_t, video.duration - start_t))
-        text_clips.append(active_clip)
+        animated_clip = create_animated_word_clip(
+            rgba_arr=rgba_arr,
+            effect=chosen_effect,
+            duration=word_duration,
+            y_pixel=y_pixel,
+            fps=target_fps,
+        )
+        animated_clip = animated_clip.set_start(start_t)
+        text_clips.append(animated_clip)
 
     if word_timings:
-        base_clip = create_text_frame_clip(
+        base_rgba = _render_word_pil(
             word=None,
             all_words=word_timings,
             active_index=-1,
             font_path=font_path,
             font_size=font_size,
             video_w=video_w,
-            y_pixel=y_pixel,
-            text_color=text_color,
+            text_color=tuple(int(c * 0.6) for c in text_color),
             active_color=active_color,
             stroke_thickness=stroke_thickness,
-            line_height=line_height
         )
+        base_arr = np.array(base_rgba)
+        img_h_base = base_arr.shape[0]
+
+        base_clip = ImageClip(base_arr, ismask=False)
         base_clip = base_clip.set_duration(video.duration)
+        base_clip = base_clip.set_position(("center", y_pixel - img_h_base // 2))
         all_clips = [video_with_audio, base_clip] + text_clips
     else:
         all_clips = [video_with_audio]
@@ -386,114 +713,27 @@ def create_text_frame_clip(
     text_color,
     active_color,
     stroke_thickness,
-    line_height
+    line_height=1.4
 ):
     from moviepy.editor import ImageClip
-    from PIL import Image, ImageDraw, ImageFont
-    from ai_processor import reshape_arabic
-
-    padding = 40
-    img_h = font_size * 3
-    img_w = video_w
-
-    img = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    try:
-        if font_path and os.path.exists(font_path):
-            font = ImageFont.truetype(font_path, font_size)
-            small_font = ImageFont.truetype(font_path, max(font_size - 10, 20))
-        else:
-            font = ImageFont.load_default()
-            small_font = font
-    except Exception:
-        font = ImageFont.load_default()
-        small_font = font
-
-    full_text = " ".join([w for w, _, _ in all_words])
-    reshaped_full = reshape_arabic(full_text)
-
-    shadow_offset = max(2, stroke_thickness // 2)
-    draw.text(
-        (img_w // 2 + shadow_offset, img_h // 2 + shadow_offset),
-        reshaped_full,
-        font=font,
-        fill=(0, 0, 0, 180),
-        anchor="mm"
-    )
-
-    if stroke_thickness > 0:
-        for dx in range(-stroke_thickness, stroke_thickness + 1):
-            for dy in range(-stroke_thickness, stroke_thickness + 1):
-                if dx * dx + dy * dy <= stroke_thickness * stroke_thickness:
-                    draw.text(
-                        (img_w // 2 + dx, img_h // 2 + dy),
-                        reshaped_full,
-                        font=font,
-                        fill=(0, 0, 0, 220),
-                        anchor="mm"
-                    )
-
-    draw.text(
-        (img_w // 2, img_h // 2),
-        reshaped_full,
-        font=font,
-        fill=(*text_color, 255),
-        anchor="mm"
-    )
-
-    if active_index >= 0 and active_index < len(all_words):
-        active_word = all_words[active_index][0]
-        reshaped_active = reshape_arabic(active_word)
-
-        words_list = full_text.split()
-        words_before = words_list[:active_index] if active_index > 0 else []
-        words_after = words_list[active_index + 1:] if active_index < len(words_list) - 1 else []
-
-        before_text = " ".join(words_before) + " " if words_before else ""
-        after_text = " " + " ".join(words_after) if words_after else ""
-
-        try:
-            before_w = draw.textlength(reshape_arabic(before_text), font=font) if before_text.strip() else 0
-            active_w = draw.textlength(reshaped_active, font=font)
-
-            full_w = draw.textlength(reshaped_full, font=font)
-            start_x = (img_w - full_w) // 2
-
-            active_bg = Image.new("RGBA", img.size, (0, 0, 0, 0))
-            bg_draw = ImageDraw.Draw(active_bg)
-
-            rect_x = start_x + before_w - 5
-            rect_y = img_h // 2 - font_size // 2 - 5
-            rect_x2 = rect_x + active_w + 10
-            rect_y2 = img_h // 2 + font_size // 2 + 5
-
-            bg_draw.rectangle(
-                [rect_x, rect_y, rect_x2, rect_y2],
-                fill=(*active_color, 60),
-                outline=(*active_color, 150),
-                width=2
-            )
-
-            img = Image.alpha_composite(img, active_bg)
-            draw = ImageDraw.Draw(img)
-
-            draw.text(
-                (start_x + before_w + active_w // 2, img_h // 2),
-                reshaped_active,
-                font=font,
-                fill=(*active_color, 255),
-                anchor="mm"
-            )
-        except Exception:
-            pass
-
     import numpy as np
-    img_array = np.array(img)
 
-    clip = ImageClip(img_array, ismask=False)
+    rgba_img = _render_word_pil(
+        word=word,
+        all_words=all_words,
+        active_index=active_index,
+        font_path=font_path,
+        font_size=font_size,
+        video_w=video_w,
+        text_color=text_color,
+        active_color=active_color,
+        stroke_thickness=stroke_thickness,
+    )
+    img_arr = np.array(rgba_img)
+    img_h = img_arr.shape[0]
+
+    clip = ImageClip(img_arr, ismask=False)
     clip = clip.set_position(("center", y_pixel - img_h // 2))
-
     return clip
 
 

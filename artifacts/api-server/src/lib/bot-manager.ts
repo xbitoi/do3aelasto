@@ -413,12 +413,13 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
 مثال على الطول المطلوب: "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً"
 اكتب الدعاء فقط بدون أي مقدمة:`;
 
-  // Gemini models to try
+  // Gemini models to try — prioritize Gemini 2.5 (3rd generation)
   const geminiModels = [
+    "gemini-2.5-flash-preview-04-17",
     "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
-    "gemini-1.5-pro",
   ];
 
   const genAI = new GoogleGenerativeAI(geminiKey);

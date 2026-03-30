@@ -189,45 +189,132 @@ function StatusCard({ status }: { status?: BotStatus }) {
   )
 }
 
+const FONT_FAMILY_MAP: Record<string, string> = {
+  BeIn: "'BeIn', 'Cairo', sans-serif",
+  Boutros: "'Boutros', 'Cairo', sans-serif",
+  Dima: "'Dima', 'Cairo', sans-serif",
+  Takeaway: "'Takeaway', 'Cairo', sans-serif",
+};
+
 function PreviewCard({ settings }: { settings: AppSettings | null }) {
   if (!settings) return null;
-  const sampleText = "اللَّهُمَّ إِنَّا نَسْأَلُكَ رَحْمَتَكَ";
-  
-  return (
-    <PremiumCard title="المعاينة المباشرة" icon={LayoutTemplate}>
-      <div className="bg-[#050505] border-2 border-border/50 rounded-2xl flex items-center justify-center min-h-[260px] p-8 text-center relative overflow-hidden shadow-[inset_0_4px_40px_rgba(0,0,0,0.8)]">
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:24px_24px]" />
-        
-        {settings.showBackground && (
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-40 bg-black blur-2xl" style={{ opacity: (settings.bgOpacity || 40) / 100 }} />
-        )}
 
-        <div 
-          style={{ 
-            fontFamily: "'Cairo', sans-serif",
-            fontSize: `${Math.min(settings.fontSize, 48)}px`,
-            lineHeight: settings.lineHeight,
-            color: settings.textColor,
-            WebkitTextStroke: `${settings.strokeThickness}px rgba(0,0,0,0.9)`,
-            textShadow: '0px 8px 24px rgba(0,0,0,0.9)'
-          }}
-          className="relative z-10 font-black tracking-wider transition-all duration-300"
+  // Facebook Reels: 1080×1920 (9:16). We render a scaled-down version.
+  // Preview container: 216px wide → height = 216 * (16/9) = 384px
+  const PREVIEW_W = 216;
+  const PREVIEW_H = Math.round(PREVIEW_W * (16 / 9));
+  // Scale factor relative to a reference 1080px-wide video
+  const scale = PREVIEW_W / 1080;
+
+  const previewFontSize = Math.max(8, Math.round(settings.fontSize * scale));
+  const previewStroke = Math.max(0, Math.round(settings.strokeThickness * scale));
+  const yPercent = settings.yPosition; // keep as-is, it's a percentage
+
+  const fontFamily = FONT_FAMILY_MAP[settings.font] ?? "'Cairo', sans-serif";
+
+  return (
+    <PremiumCard title="معاينة — ريلز فيسبوك (9:16)" icon={LayoutTemplate}>
+      <div className="flex flex-col items-center gap-5">
+        {/* Reels frame */}
+        <div
+          className="relative overflow-hidden rounded-2xl border-2 border-border/60 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex-shrink-0"
+          style={{ width: PREVIEW_W, height: PREVIEW_H, background: "#0a0a0a" }}
         >
-          <span>اللَّهُمَّ </span>
-          <span style={{ 
-            color: settings.activeColor,
-            backgroundColor: 'rgba(0,0,0,0.4)',
-            padding: '0 8px',
-            borderRadius: '12px',
-            boxShadow: `0 0 30px ${settings.activeColor}50`,
-            borderBottom: `2px solid ${settings.activeColor}80`
-          }} className="transition-colors duration-300">إِنَّا</span>
-          <span> نَسْأَلُكَ رَحْمَتَكَ</span>
+          {/* Grid overlay to simulate video background */}
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:12px_12px]" />
+
+          {/* Gradient to simulate video content */}
+          <div className="absolute inset-0 bg-gradient-to-b from-blue-950/40 via-transparent to-green-950/30" />
+
+          {/* Fake phone UI bar (status) */}
+          <div className="absolute top-0 inset-x-0 h-5 bg-black/50 flex items-center justify-center">
+            <div className="w-12 h-1 bg-white/20 rounded-full" />
+          </div>
+
+          {/* Background band behind text (if enabled) */}
+          {settings.showBackground && (
+            <div
+              className="absolute inset-x-0 h-16 bg-black"
+              style={{
+                top: `calc(${yPercent}% - 32px)`,
+                opacity: (settings.bgOpacity ?? 40) / 100,
+                filter: "blur(8px)",
+              }}
+            />
+          )}
+
+          {/* Text overlay — positioned at yPosition% from top */}
+          <div
+            className="absolute inset-x-0 flex justify-center"
+            style={{ top: `${yPercent}%`, transform: "translateY(-50%)" }}
+          >
+            <div
+              dir="rtl"
+              style={{
+                fontFamily,
+                fontSize: previewFontSize,
+                lineHeight: settings.lineHeight,
+                color: settings.textColor,
+                WebkitTextStroke: previewStroke > 0 ? `${previewStroke}px rgba(0,0,0,0.95)` : undefined,
+                textShadow: "0 2px 6px rgba(0,0,0,0.9)",
+                textAlign: "center",
+                padding: "0 8px",
+                maxWidth: "100%",
+              }}
+            >
+              <span>اللَّهُمَّ </span>
+              <span
+                style={{
+                  color: settings.activeColor,
+                  backgroundColor: "rgba(0,0,0,0.45)",
+                  padding: "0 4px",
+                  borderRadius: "6px",
+                  boxShadow: `0 0 12px ${settings.activeColor}60`,
+                  borderBottom: `1px solid ${settings.activeColor}80`,
+                }}
+              >
+                إِنَّا
+              </span>
+              <span> نَسْأَلُكَ رَحْمَتَكَ</span>
+            </div>
+          </div>
+
+          {/* Fake Reels label */}
+          <div className="absolute bottom-5 inset-x-0 flex flex-col items-start px-3 gap-1">
+            <div className="w-16 h-1.5 bg-white/25 rounded-full" />
+            <div className="w-10 h-1.5 bg-white/15 rounded-full" />
+          </div>
+
+          {/* Reels badge */}
+          <div className="absolute top-6 left-2 text-[7px] font-black text-white/60 bg-black/40 px-1.5 py-0.5 rounded-md tracking-widest">
+            REELS
+          </div>
         </div>
+
+        {/* Settings summary */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-muted-foreground w-full max-w-xs">
+          <span className="font-bold">الخط:</span>
+          <span className="text-foreground/80 font-semibold">{settings.font}</span>
+          <span className="font-bold">الحجم:</span>
+          <span className="text-foreground/80 font-semibold">{settings.fontSize}px</span>
+          <span className="font-bold">الموضع:</span>
+          <span className="text-foreground/80 font-semibold">{settings.yPosition}%</span>
+          <span className="font-bold">لون النص:</span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: settings.textColor }} />
+            <span className="text-foreground/80 font-mono">{settings.textColor}</span>
+          </span>
+          <span className="font-bold">لون النشط:</span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: settings.activeColor }} />
+            <span className="text-foreground/80 font-mono">{settings.activeColor}</span>
+          </span>
+        </div>
+
+        <p className="text-center text-xs font-bold text-muted-foreground/60">
+          الكلمة الملونة تُضاء بالتزامن مع الصوت أثناء التشغيل الفعلي
+        </p>
       </div>
-      <p className="text-center text-sm font-bold text-muted-foreground mt-5">
-        الكلمة الملونة تمثل الكلمة النشطة حالياً بالتزامن مع قراءة الصوت
-      </p>
     </PremiumCard>
   );
 }

@@ -1,6 +1,34 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'BeIn';
+  src: url('/fonts/bein.ttf') format('truetype');
+  font-weight: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Boutros';
+  src: url('/fonts/boutros.ttf') format('truetype');
+  font-weight: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Dima';
+  src: url('/fonts/dima.ttf') format('truetype');
+  font-weight: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Takeaway';
+  src: url('/fonts/takeaway.ttf') format('truetype');
+  font-weight: normal;
+  font-display: swap;
+}
+
 @theme inline {
   --font-sans: 'Cairo', sans-serif;
   --font-display: 'Cairo', sans-serif;

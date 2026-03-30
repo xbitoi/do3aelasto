@@ -536,49 +536,84 @@ async function generateTTS(text: string, outputPath: string, slow: boolean, vide
   addLog(`✅ تم تعديل سرعة الصوت`, "success");
 }
 
+/** Estimate per-word timings proportionally by character count */
+function estimateWordTimings(words: string[], audioDuration: number): { start: number; end: number }[] {
+  if (!words.length) return [];
+  const totalChars = words.reduce((s, w) => s + w.length, 0) || 1;
+  const timings: { start: number; end: number }[] = [];
+  let elapsed = 0;
+  for (let i = 0; i < words.length; i++) {
+    const proportion = words[i].length / totalChars;
+    const duration = proportion * audioDuration;
+    timings.push({ start: elapsed, end: elapsed + duration });
+    elapsed += duration;
+  }
+  return timings;
+}
+
 /**
- * Render Arabic text as a transparent PNG using Python Pillow.
- * This correctly handles Arabic reshaping, bidi, word-wrap, and stroke.
+ * Generate animated text overlay frames (one PNG per word-active state).
+ * Returns list of {pngPath, start, end} for ffmpeg overlay chain.
  */
-async function renderArabicTextPNG(params: {
-  text: string;
+async function generateAnimatedTextFrames(params: {
+  words: string[];
+  wordTimings: { start: number; end: number }[];
   videoWidth: number;
   videoHeight: number;
   fontPath: string;
   fontSize: number;
-  textColor: string;   // hex "RRGGBB"
   strokeWidth: number;
-  yRatio: number;      // 0-1 vertical position
-  outputPng: string;
-}): Promise<void> {
-  const scriptPath = path.join(os.tmpdir(), `render_arabic_${Date.now()}.py`);
-  const txtPath = path.join(os.tmpdir(), `arabic_text_${Date.now()}.txt`);
+  yRatio: number;
+  activeColor: string;  // hex "RRGGBB"
+  totalDuration: number;
+  outputDir: string;
+}): Promise<Array<{ pngPath: string; start: number; end: number }>> {
+  const scriptPath = path.join(os.tmpdir(), `anim_arabic_${Date.now()}.py`);
+  const paramsPath = path.join(os.tmpdir(), `anim_params_${Date.now()}.json`);
+  const resultPath = path.join(os.tmpdir(), `anim_result_${Date.now()}.json`);
 
-  fs.writeFileSync(txtPath, params.text, "utf8");
-
-  const r = parseInt(params.textColor.slice(0, 2), 16);
-  const g = parseInt(params.textColor.slice(2, 4), 16);
-  const b = parseInt(params.textColor.slice(4, 6), 16);
+  fs.writeFileSync(paramsPath, JSON.stringify(params), "utf8");
 
   const script = `
+import json, sys, os
+from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
-from PIL import Image, ImageDraw, ImageFont
-import sys, textwrap
 
-with open(${JSON.stringify(txtPath)}, encoding='utf-8') as f:
-    text = f.read().strip()
+with open(${JSON.stringify(paramsPath)}, encoding='utf-8') as f:
+    p = json.load(f)
 
-W = ${params.videoWidth}
-H = ${params.videoHeight}
-font_size = ${params.fontSize}
-y_ratio = ${params.yRatio}
-stroke = ${params.strokeWidth}
-text_r, text_g, text_b = ${r}, ${g}, ${b}
+W = p['videoWidth']
+H = p['videoHeight']
+font_size = p['fontSize']
+y_ratio = p['yRatio']
+stroke = p['strokeWidth']
+output_dir = p['outputDir']
+words = p['words']
+word_timings = p['wordTimings']
+total_duration = p['totalDuration']
+active_hex = p['activeColor']
+font_path = p['fontPath']
 
-font_path = ${JSON.stringify(params.fontPath)}
+def hex_to_rgb(h):
+    return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
+
+ACTIVE_RGB = hex_to_rgb(active_hex)
+
+# Harmonious color palette for spoken words
+PALETTE = [
+    (255, 215,   0),   # Gold
+    (255, 143, 171),   # Rose
+    (116, 192, 252),   # Sky Blue
+    (105, 219, 124),   # Mint
+    (255, 179,  71),   # Peach
+    (192, 132, 252),   # Lavender
+     (34, 211, 238),   # Aqua
+    (251, 146,  60),   # Coral
+]
+
+# Load font
 font = None
-# Try requested font first, then fallback to known Arabic fonts
 fallback_fonts = [
     font_path,
     "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/bein.ttf",
@@ -587,82 +622,148 @@ fallback_fonts = [
     "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/takeaway.ttf",
 ]
 for fp in fallback_fonts:
-    if not fp:
-        continue
+    if not fp: continue
     try:
         font = ImageFont.truetype(fp, font_size)
         break
-    except Exception:
-        continue
+    except: continue
 if font is None:
-    raise RuntimeError("لم يتم العثور على أي خط عربي صالح!")
+    raise RuntimeError("لم يتم العثور على خط عربي!")
 
-# Word-wrap: split Arabic text into lines that fit within 90% of video width
-words = text.split()
-lines = []
-current = []
 dummy_img = Image.new('RGBA', (W, H), (0,0,0,0))
 dummy_draw = ImageDraw.Draw(dummy_img)
 
+# Word-wrap into lines (90% width)
+lines = []
+current_line = []
 for word in words:
-    test_line = ' '.join(current + [word])
-    reshaped_test = get_display(arabic_reshaper.reshape(test_line))
+    test = ' '.join(current_line + [word])
+    reshaped_test = get_display(arabic_reshaper.reshape(test))
     bbox = dummy_draw.textbbox((0,0), reshaped_test, font=font)
-    if bbox[2] - bbox[0] > W * 0.90 and current:
-        lines.append(' '.join(current))
-        current = [word]
+    if bbox[2] - bbox[0] > W * 0.88 and current_line:
+        lines.append(current_line[:])
+        current_line = [word]
     else:
-        current.append(word)
-if current:
-    lines.append(' '.join(current))
+        current_line.append(word)
+if current_line:
+    lines.append(current_line[:])
 
-# Reshape each line for correct RTL display
-display_lines = [get_display(arabic_reshaper.reshape(line)) for line in lines]
+# Line start indices in words[]
+line_start_indices = []
+idx = 0
+for line in lines:
+    line_start_indices.append(idx)
+    idx += len(line)
 
-# Calculate total text block height
-line_heights = []
-for dl in display_lines:
-    bbox = dummy_draw.textbbox((0,0), dl, font=font)
-    line_heights.append(bbox[3] - bbox[1])
-line_spacing = int(font_size * 0.3)
-total_h = sum(line_heights) + line_spacing * (len(display_lines) - 1)
+def get_line_idx(word_idx):
+    for i, start in enumerate(line_start_indices):
+        if start + len(lines[i]) > word_idx:
+            return i
+    return len(lines) - 1
 
-# Center the block vertically at y_ratio
-block_top = int(H * y_ratio) - total_h // 2
+def word_display_width(word):
+    reshaped = get_display(arabic_reshaper.reshape(word))
+    bbox = dummy_draw.textbbox((0,0), reshaped, font=font)
+    return bbox[2] - bbox[0]
 
-# Draw on transparent canvas
-img = Image.new('RGBA', (W, H), (0,0,0,0))
-draw = ImageDraw.Draw(img)
+def word_display_height(word):
+    reshaped = get_display(arabic_reshaper.reshape(word))
+    bbox = dummy_draw.textbbox((0,0), reshaped, font=font)
+    return bbox[3] - bbox[1]
 
-y_cursor = block_top
-for dl, lh in zip(display_lines, line_heights):
-    bbox = draw.textbbox((0,0), dl, font=font)
-    lw = bbox[2] - bbox[0]
-    x = (W - lw) // 2
+LINE_H = max(word_display_height(w) for w in words) if words else font_size
+LINE_SPACING = int(font_size * 0.4)
+WORD_GAP = int(font_size * 0.12)
 
-    # Shadow
-    draw.text((x+2, y_cursor+2), dl, font=font, fill=(0,0,0,180))
+def draw_word(draw, word, x, y, rgb, opacity, stroke_w):
+    reshaped = get_display(arabic_reshaper.reshape(word))
+    a = int(opacity)
+    shadow_a = int(180 * opacity / 255)
+    stroke_a = int(220 * opacity / 255)
+    draw.text((x+2, y+2), reshaped, font=font, fill=(0,0,0,shadow_a))
+    if stroke_w > 0:
+        for dx in range(-stroke_w, stroke_w+1):
+            for dy in range(-stroke_w, stroke_w+1):
+                if abs(dx)+abs(dy) <= stroke_w:
+                    draw.text((x+dx, y+dy), reshaped, font=font, fill=(0,0,0,stroke_a))
+    draw.text((x, y), reshaped, font=font, fill=(rgb[0],rgb[1],rgb[2],a))
 
-    # Stroke
-    if stroke > 0:
-        for dx in range(-stroke, stroke+1):
-            for dy in range(-stroke, stroke+1):
-                if abs(dx)+abs(dy) <= stroke:
-                    draw.text((x+dx, y_cursor+dy), dl, font=font, fill=(0,0,0,230))
+def render_line(draw, line_words, line_start, active_idx, word_colors, y_top, base_opacity=255):
+    widths = [word_display_width(w) for w in line_words]
+    total_w = sum(widths) + WORD_GAP * max(0, len(line_words)-1)
+    # RTL: word[0] is rightmost — place from right to left
+    x = (W + total_w) // 2
+    for i, word in enumerate(line_words):
+        g_idx = line_start + i
+        ww = widths[i]
+        x -= ww
+        if g_idx == active_idx:
+            rgb = ACTIVE_RGB
+            op = base_opacity
+        elif g_idx < active_idx and g_idx in word_colors:
+            rgb = word_colors[g_idx]
+            op = base_opacity
+        else:
+            rgb = (255, 255, 255)
+            op = int(base_opacity * 0.75)
+        draw_word(draw, word, x, y_top, rgb, op, stroke)
+        x -= WORD_GAP
 
-    # Main text
-    draw.text((x, y_cursor), dl, font=font, fill=(text_r, text_g, text_b, 255))
-    y_cursor += lh + line_spacing
+def render_frame(active_word_idx, word_colors):
+    img = Image.new('RGBA', (W, H), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    cur_line = get_line_idx(max(0, active_word_idx)) if active_word_idx >= 0 else 0
+    y_center = int(H * y_ratio)
 
-img.save(${JSON.stringify(params.outputPng)})
+    # Determine how many lines to show (current + prev)
+    show = []
+    if cur_line > 0:
+        show.append((cur_line - 1, y_center - LINE_H - LINE_SPACING, 120))
+    show.append((cur_line, y_center - LINE_H // 2, 255))
+
+    for li, y_top, opacity in show:
+        render_line(draw, lines[li], line_start_indices[li], active_word_idx, word_colors, y_top, opacity)
+    return img
+
+os.makedirs(output_dir, exist_ok=True)
+frames = []
+word_colors = {}
+palette_idx = 0
+
+# Pre-first-word frame
+img = render_frame(-1, {})
+pre_path = os.path.join(output_dir, 'frame_pre.png')
+img.save(pre_path)
+pre_end = word_timings[0]['start'] if word_timings else total_duration
+if pre_end > 0:
+    frames.append({'pngPath': pre_path, 'start': 0.0, 'end': pre_end})
+
+# One frame per word
+for i in range(len(words)):
+    word_colors[i] = PALETTE[palette_idx % len(PALETTE)]
+    palette_idx += 1
+    img = render_frame(i, word_colors)
+    fp = os.path.join(output_dir, f'frame_{i:04d}.png')
+    img.save(fp)
+    start_t = word_timings[i]['start']
+    end_t = word_timings[i+1]['start'] if i+1 < len(words) else total_duration
+    end_t = max(end_t, start_t + 0.05)
+    frames.append({'pngPath': fp, 'start': start_t, 'end': end_t})
+
+with open(${JSON.stringify(resultPath)}, 'w', encoding='utf-8') as f:
+    json.dump(frames, f)
+print("done")
 `;
 
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    await execAsync(`python3 "${scriptPath}"`, { timeout: 30000 });
+    await execAsync(`python3 "${scriptPath}"`, { timeout: 60000 });
+    const raw = fs.readFileSync(resultPath, "utf8");
+    return JSON.parse(raw) as Array<{ pngPath: string; start: number; end: number }>;
   } finally {
     try { fs.unlinkSync(scriptPath); } catch {}
-    try { fs.unlinkSync(txtPath); } catch {}
+    try { fs.unlinkSync(paramsPath); } catch {}
+    try { fs.unlinkSync(resultPath); } catch {}
   }
 }
 
@@ -673,37 +774,45 @@ async function processVideoWithText(
   outputPath: string,
   settings: AppSettings
 ) {
-  // 1. Get video dimensions and duration
-  const [videoW, videoH, videoDuration] = await Promise.all([
+  // 1. Get video dimensions, duration, and audio duration in parallel
+  const [videoW, videoH, videoDuration, audioDuration] = await Promise.all([
     getVideoWidth(videoPath),
     getVideoHeight(videoPath),
     getVideoDuration(videoPath),
+    getAudioDuration(audioPath),
   ]);
   addLog(`📐 أبعاد الفيديو: ${videoW}×${videoH} | المدة: ${videoDuration.toFixed(1)}ث`, "info");
 
   const fontPath = getFontPath(settings.font);
-  const textColor = settings.textColor.replace("#", "");
+  const activeColor = settings.activeColor.replace("#", "");
   const fontSize = settings.fontSize;
   const strokeWidth = settings.strokeThickness;
   const yRatio = settings.yPosition / 100;
 
-  // 2. Render Arabic text as transparent PNG using Pillow
-  const textPng = path.join(os.tmpdir(), `text_overlay_${Date.now()}.png`);
-  addLog(`🖼️ رسم النص العربي كصورة...`, "processing");
-  await renderArabicTextPNG({
-    text: duaaText,
+  // 2. Estimate word timings based on audio duration
+  const words = duaaText.split(/\s+/).filter((w) => w.length > 0);
+  const wordTimings = estimateWordTimings(words, Math.min(audioDuration, videoDuration));
+  addLog(`📝 عدد الكلمات: ${words.length} | الصوت: ${audioDuration.toFixed(1)}ث`, "info");
+
+  // 3. Generate animated PNG frames (one per word state)
+  const framesDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-frames-"));
+  addLog(`🎨 توليد إطارات النص المتحرك...`, "processing");
+  const frames = await generateAnimatedTextFrames({
+    words,
+    wordTimings,
     videoWidth: videoW,
     videoHeight: videoH,
     fontPath,
     fontSize,
-    textColor,
     strokeWidth,
     yRatio,
-    outputPng: textPng,
+    activeColor,
+    totalDuration: videoDuration,
+    outputDir: framesDir,
   });
-  addLog(`✅ تم رسم النص بنجاح`, "success");
+  addLog(`✅ تم توليد ${frames.length} إطار نصي`, "success");
 
-  // 3. Check if video has audio
+  // 4. Check if video has audio
   let hasAudio = false;
   try {
     const { stdout } = await execAsync(
@@ -712,37 +821,51 @@ async function processVideoWithText(
     hasAudio = stdout.trim().length > 0;
   } catch {}
 
-  // 4. Build ffmpeg command:
-  //    input 0: original video
-  //    input 1: TTS audio
-  //    input 2: text PNG overlay
-  //    - Overlay PNG on video for full duration
-  //    - Keep FULL original video length (no trimming)
-  //    - Mix original audio at 50% + TTS audio at 100%
-  let filterComplex: string;
-  let audioMap: string;
+  // 5. Build ffmpeg command with animated overlay chain
+  //    Inputs: 0=video, 1=tts audio, 2..N+1=PNG frames
+  //    Each PNG is overlaid for its time window using enable='between(t,start,end)'
+  const inputArgs: string[] = [
+    `-i "${videoPath}"`,
+    `-i "${audioPath}"`,
+    ...frames.map((f) => `-i "${f.pngPath}"`),
+  ];
 
+  // Build video filter chain: chain overlay for each frame
+  const videoFilters: string[] = [];
+  let prevLabel = "0:v";
+  for (let i = 0; i < frames.length; i++) {
+    const inputIdx = i + 2;  // inputs 2..N+1 are the PNGs
+    const outLabel = i === frames.length - 1 ? "vout" : `v${i}`;
+    const { start, end } = frames[i];
+    videoFilters.push(
+      `[${prevLabel}][${inputIdx}:v]overlay=0:0:enable='between(t,${start.toFixed(3)},${end.toFixed(3)})'[${outLabel}]`
+    );
+    prevLabel = outLabel;
+  }
+
+  // If no frames somehow, pass through
+  if (frames.length === 0) {
+    videoFilters.push(`[0:v]copy[vout]`);
+  }
+
+  // Audio filters
+  let audioMap: string;
+  const audioFilters: string[] = [];
   if (hasAudio) {
-    filterComplex = [
-      `[0:v][2:v]overlay=0:0[vout]`,
-      `[1:a]apad=whole_dur=${videoDuration}[tts_full]`,
-      `[0:a]volume=0.5[orig_vol]`,
-      `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
-    ].join(";");
+    audioFilters.push(`[1:a]apad=whole_dur=${videoDuration}[tts_full]`);
+    audioFilters.push(`[0:a]volume=0.5[orig_vol]`);
+    audioFilters.push(`[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
     audioMap = `[aout]`;
   } else {
-    filterComplex = [
-      `[0:v][2:v]overlay=0:0[vout]`,
-      `[1:a]apad=whole_dur=${videoDuration}[aout]`,
-    ].join(";");
+    audioFilters.push(`[1:a]apad=whole_dur=${videoDuration}[aout]`);
     audioMap = `[aout]`;
   }
 
+  const filterComplex = [...videoFilters, ...audioFilters].join(";");
+
   const cmd = [
     "ffmpeg",
-    `-i "${videoPath}"`,
-    `-i "${audioPath}"`,
-    `-i "${textPng}"`,
+    ...inputArgs,
     `-filter_complex "${filterComplex}"`,
     `-map "[vout]"`,
     `-map "${audioMap}"`,
@@ -755,9 +878,10 @@ async function processVideoWithText(
   ].join(" ");
 
   try {
-    await execAsync(cmd, { timeout: 180000 });
+    await execAsync(cmd, { timeout: 300000 });
   } finally {
-    try { fs.unlinkSync(textPng); } catch {}
+    // Clean up frames directory
+    try { fs.rmSync(framesDir, { recursive: true, force: true }); } catch {}
   }
 }
 

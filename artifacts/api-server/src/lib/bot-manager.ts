@@ -207,14 +207,18 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     addLog("📥 تحميل الفيديو...", "processing");
     await downloadFile(fileUrl, videoPath);
 
+    // قراءة المدة الحقيقية من الملف بدلاً من بيانات تيليغرام
+    addLog("📏 قراءة بيانات الفيديو...", "processing");
+    const actualDuration = await getVideoDuration(videoPath);
+    addLog(`⏱️ مدة الفيديو الحقيقية: ${actualDuration.toFixed(1)}ث`, "info");
+
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n🤖 توليد الدعاء بـ Gemini AI...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
 
     addLog("🤖 توليد الدعاء بالذكاء الاصطناعي...", "processing");
-    const duration = msg.video?.duration || 10;
-    const duaaText = await generateDuaa(geminiKeyStore, duration, settings.duaaStyle);
+    const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle);
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
 
     await botInstance!.editMessageText(
@@ -365,15 +369,22 @@ async function generateDuaa(geminiKey: string, videoDuration: number, style: str
       });
 
       let text = result.response.text().trim();
-      // Remove any intro lines (lines that don't start with Arabic dua patterns)
+      // Join all non-empty lines into one continuous dua
       const allLines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-      // Join all lines into one continuous dua
       text = allLines.join(" ").trim();
-      // Remove any quotes or decorative chars that might appear
-      text = text.replace(/^["'«»]+|["'«»]+$/g, "").trim();
+      // Remove any surrounding quotes or decorative chars
+      text = text.replace(/^["'«»\-–—*]+|["'«»\-–—*]+$/g, "").trim();
 
-      const wordCount = text.split(/\s+/).length;
+      const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
       addLog(`📊 عدد الكلمات في الدعاء: ${wordCount}`, "info");
+
+      if (wordCount < minWords) {
+        addLog(`⚠️ الدعاء قصير جداً (${wordCount} كلمة)، سيُعاد المحاولة...`, "warning");
+        // Don't return yet, continue to next model or retry
+        lastError = new Error(`الدعاء قصير: ${wordCount} كلمة فقط`);
+        continue;
+      }
+
       addLog(`✅ نجح النموذج: ${modelName}`, "success");
       return text;
     } catch (err: unknown) {

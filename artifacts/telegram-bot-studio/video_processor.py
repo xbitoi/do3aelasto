@@ -524,7 +524,18 @@ TRANSITION_BUILDERS = [
 ]
 
 
-def _concatenate_with_transitions(clips):
+TRANSITION_MAP = {
+    "crossfade":   lambda c1, c2: _make_crossfade(c1, c2),
+    "slide_left":  lambda c1, c2: _make_slide_transition(c1, c2, 'left'),
+    "slide_right": lambda c1, c2: _make_slide_transition(c1, c2, 'right'),
+    "slide_up":    lambda c1, c2: _make_slide_transition(c1, c2, 'up'),
+    "fade_black":  lambda c1, c2: _make_fade_black(c1, c2),
+    "zoom":        lambda c1, c2: _make_zoom_transition(c1, c2),
+    "wipe":        lambda c1, c2: _make_wipe_transition(c1, c2),
+}
+
+
+def _concatenate_with_transitions(clips, transition_effect: str = "random"):
     from moviepy.editor import concatenate_videoclips
 
     if len(clips) == 1:
@@ -540,7 +551,10 @@ def _concatenate_with_transitions(clips):
             parts.append(clips[i])
             continue
 
-        builder = random.choice(TRANSITION_BUILDERS)
+        if transition_effect == "random" or transition_effect not in TRANSITION_MAP:
+            builder = random.choice(TRANSITION_BUILDERS)
+        else:
+            builder = TRANSITION_MAP[transition_effect]
         trans = builder(c1, c2)
 
         if i < len(clips) - 1:
@@ -580,8 +594,10 @@ def _merge_and_process_sync(
             clip = clip.set_fps(target_fps)
         resized_clips.append(clip)
 
+    transition_effect = settings.get("transition_effect", "random")
+
     if len(resized_clips) > 1:
-        video = _concatenate_with_transitions(resized_clips)
+        video = _concatenate_with_transitions(resized_clips, transition_effect)
     else:
         video = resized_clips[0]
 
@@ -626,7 +642,11 @@ def _merge_and_process_sync(
     video_h = int(video.h)
     y_pixel = int((y_position / 100) * video_h)
 
-    chosen_effect = random.choice(WORD_EFFECTS)
+    word_effect_setting = settings.get("word_effect", "random")
+    if word_effect_setting == "random":
+        chosen_effect = random.choice(WORD_EFFECTS)
+    else:
+        chosen_effect = word_effect_setting if word_effect_setting in WORD_EFFECTS else random.choice(WORD_EFFECTS)
 
     text_clips = []
 

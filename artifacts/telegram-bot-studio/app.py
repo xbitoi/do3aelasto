@@ -58,6 +58,8 @@ if "settings" not in st.session_state:
         "active_color": "#3B82F6",
         "tts_speed": False,
         "duaa_style": "تضرع وخشوع",
+        "word_effect": "random",
+        "transition_effect": "random",
     }
 if "active_tab" not in st.session_state:
     st.session_state.active_tab = "main"

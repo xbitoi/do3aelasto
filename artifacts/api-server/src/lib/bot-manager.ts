@@ -57,6 +57,12 @@ export const defaultSettings: AppSettings = {
   duaaVolume: 120,
 };
 
+interface ChatSession {
+  state: "collecting";
+  videos: Array<{ num: number; fileId: string }>;
+  tmpDir: string;
+}
+
 let botInstance: TelegramBot | null = null;
 let botRunning = false;
 let botName = "";
@@ -66,6 +72,7 @@ let startTime: number | null = null;
 let geminiKeyStore = "";
 let groqKeyStore = "";
 let logs: LogEntry[] = [];
+const chatSessions = new Map<number, ChatSession>();
 
 export function addLog(message: string, level: LogLevel = "info") {
   const entry: LogEntry = {
@@ -135,7 +142,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     addLog(`👤 مستخدم جديد: ${name}`, "info");
     await botInstance!.sendMessage(
       chatId,
-      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل لي فيديو (≈10 ثواني)\n• سأولّد دعاءً بالتشكيل بـ Gemini AI\n• سأضع الدعاء على الفيديو مع الصوت\n• سأعيد إرساله إليك مع مزامنة الكلمات!\n\n🎬 *جرّب الآن — أرسل فيديو!*`,
+      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n🎬 *جرّب الآن!*`,
       { parse_mode: "Markdown" }
     );
   });
@@ -143,33 +150,74 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   botInstance.onText(/\/help/, async (msg) => {
     await botInstance!.sendMessage(
       msg.chat.id,
-      `📖 *مساعدة - بوت الدعاء الذكي*\n\n🎬 أرسل فيديو مدته ≈10 ثواني\n🤖 سيولد Gemini دعاءً بالتشكيل\n🔊 يُحوّل الدعاء لصوت عربي\n📝 يُراكَب النص على الفيديو\n💙 الكلمات تُضاء بالتزامن مع الصوت\n\n/start - بدء التشغيل`,
+      `📖 *مساعدة - بوت الدعاء الذكي*\n\n*فيديو مباشر:*\nأرسل فيديو واحد → يُعالج فوراً\n\n*دمج متعدد:*\n1️⃣ أرسل *ابدا*\n2️⃣ أرسل الفيديوهات مع أرقام في الوصف (1، 2، 3...)\n3️⃣ أرسل *ابدا* → يدمجها والدعاء يظهر على المقطع الأخير\n\n/start - بدء التشغيل`,
       { parse_mode: "Markdown" }
     );
   });
 
   botInstance.on("video", async (msg) => {
-    await handleVideo(msg, getSettings());
+    const session = chatSessions.get(msg.chat.id);
+    if (session) {
+      await addVideoToSession(msg, session);
+    } else {
+      await handleVideo(msg, getSettings());
+    }
   });
 
   botInstance.on("document", async (msg) => {
     if (msg.document?.mime_type?.startsWith("video/")) {
-      await handleVideo(msg, getSettings());
+      const session = chatSessions.get(msg.chat.id);
+      if (session) {
+        await addVideoToSession(msg, session);
+      } else {
+        await handleVideo(msg, getSettings());
+      }
     } else {
       await botInstance!.sendMessage(
         msg.chat.id,
-        "🎬 الرجاء إرسال ملف *فيديو* (مدته ≈10 ثواني) لأقوم بمعالجته!",
+        "🎬 الرجاء إرسال ملف *فيديو*!",
         { parse_mode: "Markdown" }
       );
     }
   });
 
   botInstance.on("message", async (msg) => {
-    if (!msg.video && !msg.document && !msg.text?.startsWith("/")) {
+    if (msg.video || msg.document) return;
+    if (!msg.text) return;
+    const chatId = msg.chat.id;
+    const text = msg.text.trim();
+    if (text.startsWith("/")) return;
+
+    if (text === "ابدا" || text === "ابدأ") {
+      const session = chatSessions.get(chatId);
+      if (!session) {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-multi-"));
+        chatSessions.set(chatId, { state: "collecting", videos: [], tmpDir });
+        await botInstance!.sendMessage(
+          chatId,
+          `✅ *وضع التجميع نشط!*\n\nأرسل الفيديوهات مع الأرقام في وصف كل فيديو:\n• فيديو أول → اكتب *1* في الوصف\n• فيديو ثانٍ → اكتب *2* في الوصف\n• وهكذا...\n\nعندما تنتهي أرسل *ابدا* مرة أخرى للمعالجة 🚀`,
+          { parse_mode: "Markdown" }
+        );
+      } else {
+        if (session.videos.length === 0) {
+          await botInstance!.sendMessage(chatId, "⚠️ لم تُرسل أي فيديوهات بعد! أرسل فيديوهات مرقمة أولاً.");
+          return;
+        }
+        chatSessions.delete(chatId);
+        await handleMultiVideo(chatId, session, getSettings());
+      }
+      return;
+    }
+
+    const session = chatSessions.get(chatId);
+    if (session) {
       await botInstance!.sendMessage(
-        msg.chat.id,
-        "🎬 أرسل لي فيديو وسأضع عليه دعاءً بصوت جميل! 🤲"
+        chatId,
+        `📹 أرسل فيديوهات مرقمة أو أرسل *ابدا* للمعالجة\n📋 المجمَّع حتى الآن: *${session.videos.length}* فيديو`,
+        { parse_mode: "Markdown" }
       );
+    } else {
+      await botInstance!.sendMessage(chatId, "🎬 أرسل لي فيديو وسأضع عليه دعاءً بصوت جميل! 🤲");
     }
   });
 
@@ -285,6 +333,222 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
         .catch(() => {});
     }
   }
+}
+
+async function addVideoToSession(msg: TelegramBot.Message, session: ChatSession) {
+  const chatId = msg.chat.id;
+  const caption = (msg.caption || msg.document?.file_name || "").trim();
+  const numMatch = caption.match(/\d+/);
+  const num = numMatch ? parseInt(numMatch[0]) : session.videos.length + 1;
+
+  const fileId = msg.video?.file_id || msg.document?.file_id;
+  if (!fileId) return;
+
+  const existing = session.videos.find(v => v.num === num);
+  if (existing) {
+    session.videos = session.videos.filter(v => v.num !== num);
+    await botInstance!.sendMessage(chatId, `♻️ تم استبدال الفيديو رقم *${num}*`, { parse_mode: "Markdown" });
+  }
+
+  session.videos.push({ num, fileId });
+  const sorted = [...session.videos].sort((a, b) => a.num - b.num);
+  const nums = sorted.map(v => `*${v.num}*`).join(", ");
+
+  await botInstance!.sendMessage(
+    chatId,
+    `✅ *استُقبل الفيديو رقم ${num}*\n\n📋 المجمَّع: ${nums}\n\nأرسل المزيد أو أرسل *ابدا* للمعالجة`,
+    { parse_mode: "Markdown" }
+  );
+}
+
+async function handleMultiVideo(chatId: number, session: ChatSession, settings: AppSettings) {
+  const { tmpDir, videos } = session;
+  const sorted = [...videos].sort((a, b) => a.num - b.num);
+
+  addLog(`🎬 بدء دمج ${sorted.length} فيديوهات`, "processing");
+
+  let statusMsg: TelegramBot.Message | null = null;
+  try {
+    statusMsg = await botInstance!.sendMessage(
+      chatId,
+      `⏳ *جاري المعالجة...*\n\n📥 تحميل ${sorted.length} فيديوهات...`,
+      { parse_mode: "Markdown" }
+    );
+
+    // 1. Download all videos
+    const rawPaths: string[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const v = sorted[i];
+      const fileInfo = await botInstance!.getFile(v.fileId);
+      const fileUrl = `https://api.telegram.org/file/bot${(botInstance as any).token}/${fileInfo.file_path}`;
+      const vidPath = path.join(tmpDir, `raw_${v.num}.mp4`);
+      await downloadFile(fileUrl, vidPath);
+      rawPaths.push(vidPath);
+      addLog(`✅ تم تحميل الفيديو ${i + 1}/${sorted.length}`, "info");
+    }
+
+    const lastRawPath = rawPaths[rawPaths.length - 1];
+    const lastDuration = await getVideoDuration(lastRawPath);
+
+    // 2. Generate duaa based on last video duration
+    await botInstance!.editMessageText(
+      "⏳ *جاري المعالجة...*\n\n🤖 توليد الدعاء للمقطع الأخير...",
+      { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+    );
+    const duaaText = await generateDuaa(geminiKeyStore, lastDuration, settings.duaaStyle, groqKeyStore, settings.geminiModel || "auto");
+    addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
+
+    // 3. Generate TTS
+    await botInstance!.editMessageText(
+      "⏳ *جاري المعالجة...*\n\n🔊 توليد صوت الدعاء...",
+      { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+    );
+    const audioPath = path.join(tmpDir, "audio.mp3");
+    await generateTTS(duaaText, audioPath, settings.ttsSpeed, lastDuration, settings.ttsVoice || "ar-SA-HamedNeural");
+
+    // 4. Process last video with duaa overlay
+    await botInstance!.editMessageText(
+      "⏳ *جاري المعالجة...*\n\n🎬 معالجة المقطع الأخير بالدعاء...",
+      { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+    );
+    const lastProcessedPath = path.join(tmpDir, "last_processed.mp4");
+    await processVideoWithText(lastRawPath, audioPath, duaaText, lastProcessedPath, settings);
+
+    // 5. If only one video, send directly
+    if (sorted.length === 1) {
+      await botInstance!.editMessageText(
+        "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو...",
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      );
+      await botInstance!.sendVideo(chatId, fs.createReadStream(lastProcessedPath), {
+        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_`,
+        parse_mode: "Markdown",
+      });
+    } else {
+      // 6. Get reference dimensions from last video
+      const [refW, refH] = await Promise.all([getVideoWidth(lastRawPath), getVideoHeight(lastRawPath)]);
+
+      // 7. Normalize non-last videos to same dimensions/fps
+      await botInstance!.editMessageText(
+        `⏳ *جاري المعالجة...*\n\n🔗 توحيد وضبط ${sorted.length - 1} مقاطع...`,
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      );
+      const segmentPaths: string[] = [];
+      for (let i = 0; i < rawPaths.length - 1; i++) {
+        const normPath = path.join(tmpDir, `seg_${i}.mp4`);
+        await normalizeVideoSegment(rawPaths[i], normPath, refW, refH, settings);
+        segmentPaths.push(normPath);
+      }
+      segmentPaths.push(lastProcessedPath);
+
+      // 8. Concat all segments
+      await botInstance!.editMessageText(
+        "⏳ *جاري المعالجة...*\n\n🎞️ دمج المقاطع...",
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      );
+      const finalPath = path.join(tmpDir, "final.mp4");
+      await concatVideos(segmentPaths, finalPath);
+
+      await botInstance!.editMessageText(
+        "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      );
+      await botInstance!.sendVideo(chatId, fs.createReadStream(finalPath), {
+        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_`,
+        parse_mode: "Markdown",
+      });
+    }
+
+    if (statusMsg) await botInstance!.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
+    processedCount++;
+    addLog(`🎉 تم إرسال الفيديو المدموج (${sorted.length} مقاطع) بنجاح`, "success");
+
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    addLog(`❌ خطأ في دمج الفيديوهات: ${errorMsg}`, "error");
+    if (statusMsg) {
+      await botInstance!.editMessageText(
+        `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
+        { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+      ).catch(() => {});
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function normalizeVideoSegment(
+  inputPath: string,
+  outputPath: string,
+  width: number,
+  height: number,
+  settings: AppSettings
+) {
+  let hasAudio = false;
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`
+    );
+    hasAudio = stdout.trim().length > 0;
+  } catch {}
+
+  const scaleFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+
+  let cmd: string;
+  if (hasAudio) {
+    cmd = [
+      "ffmpeg",
+      `-i "${inputPath}"`,
+      `-vf "${scaleFilter}"`,
+      `-r 30`,
+      `-c:v libx264`,
+      `-preset ${settings.videoQuality || "fast"}`,
+      `-profile:v baseline -level 3.1`,
+      `-pix_fmt yuv420p`,
+      `-c:a aac -b:a 128k -ar 44100 -ac 2`,
+      `-movflags +faststart`,
+      `-y "${outputPath}"`,
+    ].join(" ");
+  } else {
+    cmd = [
+      "ffmpeg",
+      `-f lavfi -i "anullsrc=channel_layout=stereo:sample_rate=44100"`,
+      `-i "${inputPath}"`,
+      `-vf "${scaleFilter}"`,
+      `-r 30`,
+      `-c:v libx264`,
+      `-preset ${settings.videoQuality || "fast"}`,
+      `-profile:v baseline -level 3.1`,
+      `-pix_fmt yuv420p`,
+      `-c:a aac -b:a 128k -ar 44100 -ac 2`,
+      `-shortest`,
+      `-movflags +faststart`,
+      `-y "${outputPath}"`,
+    ].join(" ");
+  }
+  await execAsync(cmd, { timeout: 120000 });
+}
+
+async function concatVideos(videoPaths: string[], outputPath: string) {
+  const n = videoPaths.length;
+  const inputs = videoPaths.map(p => `-i "${p}"`).join(" ");
+  const filterIn = videoPaths.map((_, i) => `[${i}:v][${i}:a]`).join("");
+  const filterComplex = `${filterIn}concat=n=${n}:v=1:a=1[vout][aout]`;
+
+  const cmd = [
+    "ffmpeg",
+    inputs,
+    `-filter_complex "${filterComplex}"`,
+    `-map "[vout]" -map "[aout]"`,
+    `-c:v libx264 -preset fast`,
+    `-profile:v baseline -level 3.1`,
+    `-pix_fmt yuv420p`,
+    `-c:a aac -b:a 128k`,
+    `-movflags +faststart`,
+    `-y "${outputPath}"`,
+  ].join(" ");
+
+  await execAsync(cmd, { timeout: 600000 });
 }
 
 async function downloadFile(url: string, dest: string) {

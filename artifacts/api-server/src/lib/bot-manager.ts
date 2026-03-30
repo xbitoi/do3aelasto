@@ -432,36 +432,74 @@ function formatFileSize(filePath: string): string {
   }
 }
 
-async function publishToYouTube(videoPath: string, title: string, description: string, refreshToken: string, clientId: string, clientSecret: string): Promise<{ success: boolean; videoId?: string; url?: string; channelName?: string; error?: string }> {
+// ── YouTube & Facebook content builders ──────────────────────────────────
+
+function buildYouTubeTags(duaaText: string, isShort = false): string[] {
+  const coreTags = [
+    "دعاء", "إسلامي", "قرآن كريم", "تسبيح", "ذكر الله",
+    "معجزات الله", "سبحان الله", "الله أكبر", "الحمد لله",
+    "دعاء مؤثر", "دعاء يبكي", "أذكار", "إسلام",
+    "دعاء اليوم", "طبيعة إسلامية", "خلق الله", "islamic",
+  ];
+  if (isShort) coreTags.push("Shorts", "YouTube Shorts", "islamicshorts", "arabicshorts");
+  const arabicWords = duaaText
+    .replace(/[ًٌٍَُِّْ]/g, "")
+    .split(/\s+/)
+    .filter(w => /^[\u0621-\u064A]{3,}$/.test(w))
+    .slice(0, 4);
+  return [...new Set([...coreTags, ...arabicWords])].slice(0, 15);
+}
+
+function buildYouTubeDescription(duaaText: string, customDesc: string | undefined, isShort: boolean): string {
+  const cta = isShort
+    ? "🔔 اشترك للمزيد من مقاطع الدعاء\n👍 أعجبك؟ شاركه وانشر الخير 🤍"
+    : [
+        "🔔 اشترك في القناة وفعّل جرس التنبيهات لتصلك مقاطع الدعاء يومياً",
+        "👍 لا تنسَ الإعجاب ومشاركة الفيديو — كل مشاركة صدقة جارية",
+        "💬 اترك تعليقاً بدعائك المفضل",
+        "🔁 أعد التشغيل لتستمع مراراً وتتدبر",
+      ].join("\n");
+  const hashtags = [
+    "#دعاء", "#إسلام", "#سبحان_الله", "#معجزات_الله", "#الله_أكبر",
+    "#الحمد_لله", "#ذكر_الله", "#دعاء_مؤثر", "#تسبيح", "#قرآن_كريم",
+    "#دعاء_اليوم", "#اسلاميات", "#خلق_الله", "#صدقة_جارية", "#نشر_الخير",
+  ];
+  if (isShort) hashtags.push("#Shorts", "#YouTubeShorts", "#islamicshorts");
+  const lines: string[] = [`🤲 ${duaaText}`, "", "━━━━━━━━━━", cta];
+  if (customDesc) lines.push("", `📝 ${customDesc}`);
+  lines.push("", "━━━━━━━━━━", hashtags.join(" "));
+  return lines.join("\n");
+}
+
+function buildFacebookDescription(duaaText: string, customDesc: string | undefined): string {
+  const cta = [
+    "👍 أعجبك؟ شاركه لتعم الفائدة ويصل الخير للجميع",
+    "🔔 تابع الصفحة للمزيد من مقاطع الدعاء والذكر",
+    "💬 اكتب في التعليقات «آمين» وشاركنا دعاءك",
+  ].join("\n");
+  const hashtags = [
+    "#دعاء", "#إسلام", "#سبحان_الله", "#معجزات_الله", "#الله_أكبر",
+    "#الحمد_لله", "#ذكر_الله", "#دعاء_مؤثر", "#قرآن_كريم",
+    "#دعاء_اليوم", "#اسلاميات", "#خلق_الله", "#صدقة_جارية", "#نشر_الخير",
+    "#طبيعة_إسلامية", "#تأمل",
+  ].join(" ");
+  const lines: string[] = [`🤲 ${duaaText}`, "", "━━━━━━━━━━", cta];
+  if (customDesc) lines.push("", `📝 ${customDesc}`);
+  lines.push("", "━━━━━━━━━━", hashtags);
+  return lines.join("\n");
+}
+
+async function uploadVideoToYouTube(
+  accessToken: string,
+  videoBuffer: Buffer,
+  title: string,
+  description: string,
+  tags: string[],
+  label: string
+): Promise<{ success: boolean; videoId?: string; url?: string; isShort: boolean; error?: string }> {
+  const isShort = label === "Short";
+  const videoSize = videoBuffer.length;
   try {
-    addLog("📺 رفع الفيديو على يوتيوب...", "processing");
-
-    const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
-    if (!tokenRes.accessToken) {
-      return { success: false, error: tokenRes.error || "فشل الحصول على access token" };
-    }
-    const accessToken = tokenRes.accessToken;
-
-    // Fetch channel name
-    let channelName: string | undefined;
-    try {
-      const chRes = await fetch(
-        "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      if (chRes.ok) {
-        const chData = await chRes.json() as { items?: Array<{ snippet: { title: string } }> };
-        channelName = chData.items?.[0]?.snippet?.title;
-      }
-    } catch {}
-
-    const videoBuffer = fs.readFileSync(videoPath);
-    const videoSize = videoBuffer.length;
-
-    const duaaWords = description.split(/\s+/).filter(w => /[\u0600-\u06FF]/.test(w));
-    const tags = ["دعاء", "إسلامي", "قرآن", "تسبيح", "ذكر الله", "معجزات الله", "سبحان الله", "الله أكبر"];
-    duaaWords.slice(0, 3).forEach(w => { if (w.length > 2) tags.push(w.replace(/[ًٌٍَُِّْ]/g, "")); });
-
     const initRes = await fetch(
       "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
       {
@@ -484,30 +522,96 @@ async function publishToYouTube(videoPath: string, title: string, description: s
         }),
       }
     );
-
     if (!initRes.ok) {
       const err = await initRes.json() as { error?: { message?: string } };
-      return { success: false, error: err.error?.message || `فشل تهيئة الرفع: ${initRes.status}` };
+      return { success: false, isShort, error: err.error?.message || `فشل تهيئة الرفع (${label}): ${initRes.status}` };
     }
-
     const uploadUrl = initRes.headers.get("location");
-    if (!uploadUrl) return { success: false, error: "لم يُعثر على رابط الرفع" };
-
+    if (!uploadUrl) return { success: false, isShort, error: `لم يُعثر على رابط الرفع (${label})` };
     const uploadRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": "video/mp4", "Content-Length": String(videoSize) },
       body: videoBuffer,
     });
-
     if (!uploadRes.ok && uploadRes.status !== 308) {
-      return { success: false, error: `فشل رفع الفيديو: ${uploadRes.status}` };
+      return { success: false, isShort, error: `فشل رفع الفيديو (${label}): ${uploadRes.status}` };
     }
-
     const result = await uploadRes.json() as { id?: string };
     const videoId = result.id;
-    if (!videoId) return { success: false, error: "لم يُعثر على معرف الفيديو بعد الرفع" };
+    if (!videoId) return { success: false, isShort, error: `لم يُعثر على معرف الفيديو (${label})` };
+    const url = isShort ? `https://youtube.com/shorts/${videoId}` : `https://youtu.be/${videoId}`;
+    return { success: true, isShort, videoId, url };
+  } catch (err) {
+    return { success: false, isShort, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
-    return { success: true, videoId, url: `https://youtu.be/${videoId}`, channelName };
+async function publishToYouTube(
+  videoPath: string,
+  title: string,
+  duaaText: string,
+  customDesc: string | undefined,
+  refreshToken: string,
+  clientId: string,
+  clientSecret: string
+): Promise<{
+  success: boolean;
+  videoId?: string; url?: string;
+  shortId?: string; shortUrl?: string;
+  channelName?: string;
+  error?: string;
+}> {
+  try {
+    addLog("📺 رفع الفيديو على يوتيوب...", "processing");
+
+    const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+    if (!tokenRes.accessToken) {
+      return { success: false, error: tokenRes.error || "فشل الحصول على access token" };
+    }
+    const accessToken = tokenRes.accessToken;
+
+    let channelName: string | undefined;
+    try {
+      const chRes = await fetch(
+        "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (chRes.ok) {
+        const chData = await chRes.json() as { items?: Array<{ snippet: { title: string } }> };
+        channelName = chData.items?.[0]?.snippet?.title;
+      }
+    } catch {}
+
+    const videoBuffer = fs.readFileSync(videoPath);
+
+    // ── Regular video upload ──────────────────────────────────────────────
+    addLog("📤 يوتيوب: رفع الفيديو العادي...", "processing");
+    const regularDesc = buildYouTubeDescription(duaaText, customDesc, false);
+    const regularTags = buildYouTubeTags(duaaText, false);
+    const regularRes = await uploadVideoToYouTube(accessToken, videoBuffer, title, regularDesc, regularTags, "عادي");
+
+    // ── YouTube Short upload ──────────────────────────────────────────────
+    addLog("📤 يوتيوب: رفع الـ Short...", "processing");
+    const shortTitle = `${title} #Shorts`.slice(0, 100);
+    const shortDesc = buildYouTubeDescription(duaaText, customDesc, true);
+    const shortTags = buildYouTubeTags(duaaText, true);
+    const shortRes = await uploadVideoToYouTube(accessToken, videoBuffer, shortTitle, shortDesc, shortTags, "Short");
+
+    if (regularRes.success) addLog(`✅ يوتيوب (عادي): ${regularRes.url}`, "success");
+    else addLog(`❌ يوتيوب (عادي): ${regularRes.error}`, "error");
+    if (shortRes.success) addLog(`✅ يوتيوب (Short): ${shortRes.url}`, "success");
+    else addLog(`❌ يوتيوب (Short): ${shortRes.error}`, "error");
+
+    if (!regularRes.success && !shortRes.success) {
+      return { success: false, error: regularRes.error || shortRes.error };
+    }
+
+    return {
+      success: true,
+      videoId: regularRes.videoId, url: regularRes.url,
+      shortId: shortRes.videoId, shortUrl: shortRes.url,
+      channelName,
+    };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -682,11 +786,8 @@ async function handlePublish(chatId: number, settings: AppSettings) {
   addLog("🏷️ جاري توليد العنوان...", "processing");
   const title = await generateVideoTitle(geminiKeyStore || settings.youtubeClientId || "");
 
-  // Build description: duaaText + optional custom description
+  // Duaa text and optional custom description
   const customDesc = settings.publishDescription?.trim();
-  const description = customDesc
-    ? `🤲 ${last.duaaText}\n\n━━━━━━━━━━\n📝 ${customDesc}\n\n#دعاء #إسلام #سبحان_الله #معجزات_الله`
-    : `🤲 ${last.duaaText}\n\n#دعاء #إسلام #سبحان_الله #معجزات_الله`;
 
   const videoSize = formatFileSize(last.videoPath);
   const publishDate = formatArabicDate();
@@ -697,6 +798,7 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     success: boolean;
     channelName?: string;
     url?: string;
+    shortUrl?: string;
     error?: string;
     extra?: string;
   }
@@ -704,13 +806,18 @@ async function handlePublish(chatId: number, settings: AppSettings) {
 
   if (hasYT) {
     await botInstance!.editMessageText(
-      `⏳ *جاري النشر...*\n\n📺 *يوتيوب:* جاري الرفع...\n\n_${title}_`,
+      `⏳ *جاري النشر...*\n\n📺 *يوتيوب:* جاري رفع الفيديو + الـ Short...\n\n_${title}_`,
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     ).catch(() => {});
-    const ytRes = await publishToYouTube(last.videoPath, title, description, settings.youtubeToken, settings.youtubeClientId, settings.youtubeClientSecret);
+    const ytRes = await publishToYouTube(
+      last.videoPath, title, last.duaaText, customDesc,
+      settings.youtubeToken, settings.youtubeClientId, settings.youtubeClientSecret
+    );
     if (ytRes.success) {
-      platformResults.push({ platform: "يوتيوب", icon: "📺", success: true, channelName: ytRes.channelName, url: ytRes.url });
-      addLog(`✅ يوتيوب: ${ytRes.url}`, "success");
+      platformResults.push({
+        platform: "يوتيوب", icon: "📺", success: true,
+        channelName: ytRes.channelName, url: ytRes.url, shortUrl: ytRes.shortUrl,
+      });
     } else {
       platformResults.push({ platform: "يوتيوب", icon: "📺", success: false, error: ytRes.error });
       addLog(`❌ فشل يوتيوب: ${ytRes.error}`, "error");
@@ -718,11 +825,15 @@ async function handlePublish(chatId: number, settings: AppSettings) {
   }
 
   if (hasFB) {
+    const prevYTStatus = hasYT
+      ? (platformResults.find(r => r.platform === "يوتيوب")?.success ? "✅ يوتيوب: تم\n" : "❌ يوتيوب: فشل\n")
+      : "";
     await botInstance!.editMessageText(
-      `⏳ *جاري النشر...*\n\n${hasYT ? (platformResults[0]?.success ? "✅ يوتيوب: تم\n" : "❌ يوتيوب: فشل\n") : ""}📘 *فيسبوك:* جاري الرفع...`,
+      `⏳ *جاري النشر...*\n\n${prevYTStatus}📘 *فيسبوك:* جاري الرفع...`,
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     ).catch(() => {});
-    const fbRes = await publishToFacebook(last.videoPath, title, description, settings.facebookToken);
+    const fbDesc = buildFacebookDescription(last.duaaText, customDesc);
+    const fbRes = await publishToFacebook(last.videoPath, title, fbDesc, settings.facebookToken);
     if (fbRes.success) {
       platformResults.push({ platform: "فيسبوك", icon: "📘", success: true, channelName: fbRes.pageName, url: fbRes.url });
       addLog(`✅ فيسبوك: ${fbRes.url}`, "success");
@@ -733,7 +844,8 @@ async function handlePublish(chatId: number, settings: AppSettings) {
   }
 
   if (hasTT) {
-    const ttRes = await publishToTikTok(last.videoPath, title, description, settings.tiktokToken);
+    const ttDesc = `🤲 ${last.duaaText}\n\n${["#دعاء", "#إسلام", "#سبحان_الله", "#الله_أكبر", "#Shorts"].join(" ")}`;
+    const ttRes = await publishToTikTok(last.videoPath, title, ttDesc, settings.tiktokToken);
     if (ttRes.success) {
       const ttName = ttRes.displayName || (ttRes.username ? `@${ttRes.username}` : undefined);
       platformResults.push({ platform: "تيك توك", icon: "🎵", success: true, channelName: ttName, extra: "قيد المراجعة" });
@@ -753,8 +865,9 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     if (r.success) {
       const channelLine = r.channelName ? `\n   📡 *القناة:* ${r.channelName}` : "";
       const urlLine = r.url ? `\n   🔗 [مشاهدة الفيديو](${r.url})` : "";
+      const shortLine = r.shortUrl ? `\n   ▶️ [مشاهدة الـ Short](${r.shortUrl})` : "";
       const extraLine = r.extra ? `\n   ⏳ ${r.extra}` : "";
-      return `${r.icon} *${r.platform}* ✅${channelLine}${urlLine}${extraLine}`;
+      return `${r.icon} *${r.platform}* ✅${channelLine}${urlLine}${shortLine}${extraLine}`;
     } else {
       return `${r.icon} *${r.platform}* ❌\n   ⚠️ ${r.error?.slice(0, 80) || "خطأ غير معروف"}`;
     }
@@ -793,6 +906,8 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     `⏱️ *وقت النشر:* ${publishDuration} ثانية`,
     `🎬 *حجم الفيديو:* ${videoSize}`,
     `📱 *عدد المنصات:* ${successCount}/${platformResults.length} منصة`,
+    hasYT && platformResults.find(r => r.platform === "يوتيوب")?.shortUrl
+      ? `▶️ *يوتيوب Shorts:* منشور بنجاح` : "",
     ``,
     `━━━━━━━━━━━━━━━━`,
     `🤲 _بارك الله فيك وفي جهودك_`,

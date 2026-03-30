@@ -317,7 +317,12 @@ async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
   }
 }
 
-async function generateDuaa(geminiKey: string, duration: number, style: string): Promise<string> {
+async function generateDuaa(geminiKey: string, videoDuration: number, style: string): Promise<string> {
+  // Determine word count based on video duration
+  // ~2 seconds per word in Arabic TTS
+  const maxWords = Math.min(30, Math.max(10, Math.floor(videoDuration / 2)));
+  const minWords = Math.max(8, maxWords - 4);
+  addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
   const genAI = new GoogleGenerativeAI(geminiKey);
 
   const styleMap: Record<string, string> = {
@@ -330,14 +335,14 @@ async function generateDuaa(geminiKey: string, duration: number, style: string):
 
   const styleDesc = styleMap[style] || styleMap["تضرع وخشوع"];
 
-  const prompt = `اكتب دعاءً إسلامياً قصيراً باللغة العربية الفصحى مع التشكيل الكامل.
+  const prompt = `اكتب دعاءً إسلامياً باللغة العربية الفصحى مع التشكيل الكامل.
 
 المتطلبات الصارمة:
-- عدد الكلمات: من 12 إلى 15 كلمة بالضبط
+- عدد الكلمات: من ${minWords} إلى ${maxWords} كلمة بالضبط
 - يجب أن يكون ${styleDesc}
 - اكتب التشكيل الكامل (فتحة، ضمة، كسرة، شدة، تنوين) على كل حرف
 - استخدم كلمات قرآنية ومأثورة
-- لا تضع أي شرح أو ترجمة، فقط الدعاء مباشرة
+- لا تضع أي شرح أو ترجمة أو علامات ترقيم، فقط الدعاء مباشرة
 
 اكتب الدعاء الآن:`;
 
@@ -385,6 +390,34 @@ async function generateTTS(text: string, outputPath: string, slow: boolean) {
   );
 }
 
+/** Reshape Arabic text using Python arabic_reshaper + bidi for correct ffmpeg rendering */
+async function reshapeArabic(text: string): Promise<string> {
+  const tmpIn = path.join(os.tmpdir(), `ar_in_${Date.now()}.txt`);
+  const tmpOut = path.join(os.tmpdir(), `ar_out_${Date.now()}.txt`);
+  try {
+    fs.writeFileSync(tmpIn, text, "utf8");
+    await execAsync(
+      `python3 -c "
+import arabic_reshaper
+from bidi.algorithm import get_display
+with open('${tmpIn}', encoding='utf-8') as f:
+    t = f.read().strip()
+reshaped = get_display(arabic_reshaper.reshape(t))
+with open('${tmpOut}', 'w', encoding='utf-8') as f:
+    f.write(reshaped)
+"`
+    );
+    const result = fs.readFileSync(tmpOut, "utf8").trim();
+    return result || text;
+  } catch (e) {
+    logger.warn({ e }, "Arabic reshape failed, using raw text");
+    return text;
+  } finally {
+    try { fs.unlinkSync(tmpIn); } catch {}
+    try { fs.unlinkSync(tmpOut); } catch {}
+  }
+}
+
 async function processVideoWithText(
   videoPath: string,
   audioPath: string,
@@ -392,66 +425,88 @@ async function processVideoWithText(
   outputPath: string,
   settings: AppSettings
 ) {
-  const ffmpegPath = "ffmpeg";
+  // 1. Reshape Arabic text properly for ffmpeg
+  const reshapedText = await reshapeArabic(duaaText);
+  addLog(`✅ تم تشكيل النص العربي للعرض`, "info");
 
-  const videoH = await getVideoHeight(videoPath);
+  // 2. Get dimensions and durations
+  const [videoH, videoDuration] = await Promise.all([
+    getVideoHeight(videoPath),
+    getVideoDuration(videoPath),
+  ]);
+
   const yPixel = Math.floor((settings.yPosition / 100) * videoH);
-
   const fontPath = getFontPath(settings.font);
   const textColor = settings.textColor.replace("#", "");
-  const activeColor = settings.activeColor.replace("#", "");
-
   const fontSize = settings.fontSize;
   const strokeWidth = settings.strokeThickness;
 
-  const reshapedText = duaaText;
-
-  let filterComplex = "";
-
-  const hasBg = settings.showBackground;
-  const bgOpacityHex = Math.floor((settings.bgOpacity / 100) * 255)
-    .toString(16)
-    .padStart(2, "0");
-
-  const escapedText = reshapedText
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/:/g, "\\:")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]");
+  // 3. Escape text for ffmpeg drawtext (write to file to avoid escaping nightmare)
+  const tmpTextFile = path.join(os.tmpdir(), `duaa_${Date.now()}.txt`);
+  fs.writeFileSync(tmpTextFile, reshapedText, "utf8");
 
   const fontFile = fontPath ? `fontfile='${fontPath}':` : "";
 
-  const shadowFilter = `drawtext=${fontFile}text='${escapedText}':fontsize=${fontSize}:fontcolor=black@0.7:x=(w-text_w)/2+3:y=${yPixel}+3:borderw=0`;
-  const mainFilter = `drawtext=${fontFile}text='${escapedText}':fontsize=${fontSize}:fontcolor=0x${textColor}:bordercolor=black@0.9:borderw=${strokeWidth}:x=(w-text_w)/2:y=${yPixel}`;
+  const safeTextFilter = [
+    `drawtext=${fontFile}textfile='${tmpTextFile}':fontsize=${fontSize}:fontcolor=black@0.8:x=(w-text_w)/2+2:y=${yPixel}+2:borderw=0`,
+    `drawtext=${fontFile}textfile='${tmpTextFile}':fontsize=${fontSize}:fontcolor=0x${textColor}:bordercolor=black@0.95:borderw=${strokeWidth}:x=(w-text_w)/2:y=${yPixel}`,
+  ].join(",");
 
-  if (hasBg) {
-    filterComplex = `[0:v]drawbox=x=(w-text_w-20)/2:y=${yPixel - fontSize / 2 - 10}:w=text_w+20:h=${fontSize + 20}:color=000000${bgOpacityHex}:t=fill,${shadowFilter},${mainFilter}[vout]`;
-    filterComplex = `[0:v]${shadowFilter},${mainFilter}[vout]`;
+  // 4. Check if video has its own audio stream
+  let hasAudio = false;
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${videoPath}"`
+    );
+    hasAudio = stdout.trim().length > 0;
+  } catch {}
+
+  // 5. Build ffmpeg command:
+  //    - Keep FULL video duration (no cutting)
+  //    - Original audio at 50% volume
+  //    - TTS audio at 100% (padded with silence to fill video duration)
+  //    - Text overlay for full duration
+  let filterComplex: string;
+  let audioMap: string;
+
+  if (hasAudio) {
+    // Pad TTS audio with silence to full video duration, then mix with original at 50%
+    filterComplex = [
+      `[0:v]${safeTextFilter}[vout]`,
+      `[1:a]apad=whole_dur=${videoDuration}[tts_full]`,
+      `[0:a]volume=0.5[orig_vol]`,
+      `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
+    ].join(";");
+    audioMap = `[aout]`;
   } else {
-    filterComplex = `[0:v]${shadowFilter},${mainFilter}[vout]`;
+    // No original audio — just use TTS padded with silence
+    filterComplex = [
+      `[0:v]${safeTextFilter}[vout]`,
+      `[1:a]apad=whole_dur=${videoDuration}[aout]`,
+    ].join(";");
+    audioMap = `[aout]`;
   }
 
-  const audioDuration = await getAudioDuration(audioPath);
-  const videoDuration = await getVideoDuration(videoPath);
-  const finalDuration = Math.min(videoDuration, audioDuration + 0.5);
-
   const cmd = [
-    ffmpegPath,
+    "ffmpeg",
     `-i "${videoPath}"`,
     `-i "${audioPath}"`,
     `-filter_complex "${filterComplex}"`,
     `-map "[vout]"`,
-    `-map 1:a`,
+    `-map "${audioMap}"`,
     `-c:v libx264`,
     `-preset ${settings.videoQuality || "fast"}`,
     `-c:a aac`,
-    `-t ${finalDuration}`,
+    `-t ${videoDuration}`,   // Keep FULL original video length
     `-y`,
     `"${outputPath}"`,
   ].join(" ");
 
-  await execAsync(cmd, { timeout: 120000 });
+  try {
+    await execAsync(cmd, { timeout: 180000 });
+  } finally {
+    try { fs.unlinkSync(tmpTextFile); } catch {}
+  }
 }
 
 async function getVideoHeight(videoPath: string): Promise<number> {

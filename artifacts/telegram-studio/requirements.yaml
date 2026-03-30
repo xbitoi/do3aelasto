@@ -1,0 +1,12 @@
+packages:
+  "framer-motion": "For smooth page transitions and micro-interactions"
+  "clsx": "Classname utility"
+  "tailwind-merge": "Tailwind class merge utility"
+  "lucide-react": "Icons for the beautiful UI"
+  "date-fns": "For date and time formatting"
+
+images: []
+
+notes:
+  - "RTL layout applied globally in index.css"
+  - "Using API hooks generated from OpenAPI spec by orval"

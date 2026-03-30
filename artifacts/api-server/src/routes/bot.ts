@@ -1,0 +1,55 @@
+import { Router, type IRouter } from "express";
+import {
+  startBot,
+  stopBot,
+  getBotStatus,
+  testBotToken,
+  getSettings,
+  updateSettings,
+  defaultSettings,
+} from "../lib/bot-manager.js";
+
+const router: IRouter = Router();
+
+router.post("/bot/start", async (req, res) => {
+  const { geminiKey, botToken } = req.body as { geminiKey: string; botToken: string };
+
+  if (!geminiKey || !botToken) {
+    res.status(400).json({ error: "مفتاح Gemini وتوكن البوت مطلوبان" });
+    return;
+  }
+
+  const settings = getSettings();
+  const result = await startBot(geminiKey, botToken, settings);
+  res.json(result);
+});
+
+router.post("/bot/stop", (_req, res) => {
+  const result = stopBot();
+  res.json(result);
+});
+
+router.get("/bot/status", (_req, res) => {
+  res.json(getBotStatus());
+});
+
+router.post("/bot/test", async (req, res) => {
+  const { botToken } = req.body as { botToken: string };
+  if (!botToken) {
+    res.status(400).json({ error: "توكن البوت مطلوب" });
+    return;
+  }
+  const result = await testBotToken(botToken);
+  res.json(result);
+});
+
+router.get("/settings", (_req, res) => {
+  res.json(getSettings());
+});
+
+router.put("/settings", (req, res) => {
+  const updated = updateSettings(req.body);
+  res.json(updated);
+});
+
+export default router;

@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: 'Cairo', sans-serif;
+  --font-display: 'Cairo', sans-serif;
+  
+  --color-background: hsl(222 47% 6%);
+  --color-foreground: hsl(210 40% 98%);
+  
+  --color-card: hsl(222 47% 9%);
+  --color-card-foreground: hsl(210 40% 98%);
+  
+  --color-border: hsl(217 32% 16%);
+  --color-input: hsl(217 32% 16%);
+  
+  --color-primary: hsl(238 100% 69%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  
+  --color-secondary: hsl(217 32% 16%);
+  --color-secondary-foreground: hsl(210 40% 98%);
+  
+  --color-accent: hsl(262 83% 65%);
+  --color-accent-foreground: hsl(210 40% 98%);
+  
+  --color-destructive: hsl(350 84% 60%);
+  --color-destructive-foreground: hsl(210 40% 98%);
+  
+  --color-success: hsl(142 71% 45%);
+  --color-warning: hsl(48 96% 53%);
+  --color-info: hsl(199 89% 48%);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased font-sans selection:bg-primary/30 selection:text-primary-foreground;
+    direction: rtl;
+  }
+}
+
+/* Custom premium scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full transition-colors;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-secondary-foreground/30;
+}

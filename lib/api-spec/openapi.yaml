@@ -1,22 +1,25 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Telegram Bot Studio API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: bot
+    description: Telegram bot management
+  - name: settings
+    description: App settings
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +27,107 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /bot/start:
+    post:
+      operationId: startBot
+      tags: [bot]
+      summary: Start the Telegram bot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotCredentials"
+      responses:
+        "200":
+          description: Bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResult"
+
+  /bot/stop:
+    post:
+      operationId: stopBot
+      tags: [bot]
+      summary: Stop the Telegram bot
+      responses:
+        "200":
+          description: Bot stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get bot status and recent logs
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/test:
+    post:
+      operationId: testBot
+      tags: [bot]
+      summary: Test bot token connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestBotRequest"
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestBotResult"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get current settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +138,132 @@ components:
       required:
         - status
 
+    BotCredentials:
+      type: object
+      properties:
+        geminiKey:
+          type: string
+        botToken:
+          type: string
+      required:
+        - geminiKey
+        - botToken
+
+    BotActionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    ErrorResult:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    LogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        message:
+          type: string
+        level:
+          type: string
+          enum: [info, success, error, warning, processing]
+        time:
+          type: string
+      required:
+        - id
+        - message
+        - level
+        - time
+
+    BotStatus:
+      type: object
+      properties:
+        running:
+          type: boolean
+        botName:
+          type: string
+        botUsername:
+          type: string
+        processedCount:
+          type: integer
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        uptime:
+          type: integer
+      required:
+        - running
+        - processedCount
+        - logs
+
+    TestBotRequest:
+      type: object
+      properties:
+        botToken:
+          type: string
+      required:
+        - botToken
+
+    TestBotResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        botName:
+          type: string
+        botUsername:
+          type: string
+        error:
+          type: string
+      required:
+        - success
+
+    AppSettings:
+      type: object
+      properties:
+        font:
+          type: string
+        fontSize:
+          type: integer
+        yPosition:
+          type: integer
+        lineHeight:
+          type: number
+        strokeThickness:
+          type: integer
+        textColor:
+          type: string
+        activeColor:
+          type: string
+        ttsSpeed:
+          type: boolean
+        duaaStyle:
+          type: string
+        videoQuality:
+          type: string
+        bgOpacity:
+          type: integer
+        showBackground:
+          type: boolean
+      required:
+        - font
+        - fontSize
+        - yPosition
+        - lineHeight
+        - strokeThickness
+        - textColor
+        - activeColor
+        - ttsSpeed
+        - duaaStyle

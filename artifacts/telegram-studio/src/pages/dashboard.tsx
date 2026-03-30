@@ -165,6 +165,34 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              <Slider label="الموضع العمودي" min={10} max={95} step={1} value={settings.yPosition} onChange={(v: number) => setSettings({...settings, yPosition: v})} unit="%" />
              <Slider label="ارتفاع السطر" min={1.0} max={3.0} step={0.1} value={settings.lineHeight} onChange={(v: number) => setSettings({...settings, lineHeight: v})} unit="x" />
              <Slider label="سُمك الحدود" min={0} max={10} step={1} value={settings.strokeThickness} onChange={(v: number) => setSettings({...settings, strokeThickness: v})} unit="px" />
+
+             <div className="pt-3 border-t border-border/50 space-y-4">
+               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">✨ تأثيرات الحركة</p>
+               <Select label="🔤 تأثير ظهور الكلمات" value={settings.wordEffect ?? "random"} onChange={(v: string) => setSettings({...settings, wordEffect: v})} options={[
+                 {label: "عشوائي 🎲", value: "random"},
+                 {label: "تلاشي ناعم", value: "fade_smooth"},
+                 {label: "تكبير بوب", value: "zoom_pop"},
+                 {label: "ارتداد نابضي", value: "bounce_spring"},
+                 {label: "صعود من الأسفل", value: "slide_up"},
+                 {label: "نزول من الأعلى", value: "slide_down"},
+                 {label: "دخول انسيابي", value: "swing_right"},
+                 {label: "وميض متنفس", value: "glow_pulse"},
+                 {label: "كشف من اليمين", value: "reveal_rtl"},
+               ]} />
+               <Select label="🎞 تأثير الانتقال بين الفيديوهات" value={settings.transitionEffect ?? "random"} onChange={(v: string) => setSettings({...settings, transitionEffect: v})} options={[
+                 {label: "عشوائي 🎲", value: "random"},
+                 {label: "تلاشي متقاطع", value: "crossfade"},
+                 {label: "انزلاق لليسار", value: "slide_left"},
+                 {label: "انزلاق لليمين", value: "slide_right"},
+                 {label: "انزلاق للأعلى", value: "slide_up"},
+                 {label: "تلاشي للأسود", value: "fade_black"},
+                 {label: "تكبير وتلاشي", value: "zoom"},
+                 {label: "مسح قطري", value: "wipe"},
+               ]} />
+               <p className="text-[10px] text-muted-foreground/50 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
+                 💡 اختر <span className="text-primary font-bold">عشوائي</span> ليتغير التأثير تلقائياً في كل فيديو
+               </p>
+             </div>
            </div>
         )}
         

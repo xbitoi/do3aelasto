@@ -36,6 +36,8 @@ export interface AppSettings {
   geminiModel: string;
   originalVolume: number;  // 0-200 (%)
   duaaVolume: number;      // 0-200 (%)
+  wordEffect: string;
+  transitionEffect: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -55,6 +57,8 @@ export const defaultSettings: AppSettings = {
   geminiModel: "auto",
   originalVolume: 90,
   duaaVolume: 120,
+  wordEffect: "random",
+  transitionEffect: "random",
 };
 
 interface ChatSession {

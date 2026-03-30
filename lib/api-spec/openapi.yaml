@@ -261,6 +261,14 @@ components:
           type: boolean
         geminiModel:
           type: string
+        originalVolume:
+          type: integer
+        duaaVolume:
+          type: integer
+        wordEffect:
+          type: string
+        transitionEffect:
+          type: string
       required:
         - font
         - fontSize

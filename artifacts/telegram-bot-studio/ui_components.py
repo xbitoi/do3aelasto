@@ -44,47 +44,18 @@ def render_sidebar():
     with st.expander("🖋️ الخط والحجم", expanded=True):
         fonts = ["BeIn", "Boutros", "Dima", "Takeaway"]
         font_idx = fonts.index(st.session_state.settings["font"]) if st.session_state.settings["font"] in fonts else 0
-        font = st.selectbox("نوع الخط", fonts, index=font_idx)
+        font = st.selectbox("نوع الخط", fonts, index=font_idx, key="sb_font")
         st.session_state.settings["font"] = font
 
-        font_size = st.slider("حجم الخط", 20, 150, st.session_state.settings["font_size"], 5)
+        font_size = st.slider("حجم الخط", 20, 150, st.session_state.settings["font_size"], 5, key="sl_font_size")
         st.session_state.settings["font_size"] = font_size
 
         y_pos = st.slider("الموضع العمودي (%)", 10, 95, st.session_state.settings["y_position"], 5,
-                          help="النسبة المئوية من أعلى الفيديو")
+                          help="النسبة المئوية من أعلى الفيديو", key="sl_ypos")
         st.session_state.settings["y_position"] = y_pos
 
-    with st.expander("📐 التباعد والحدود"):
-        line_height = st.slider("ارتفاع السطر", 1.0, 3.0, st.session_state.settings["line_height"], 0.1)
-        st.session_state.settings["line_height"] = line_height
-
-        stroke = st.slider("سُمك الحدود (px)", 0, 10, st.session_state.settings["stroke_thickness"], 1)
-        st.session_state.settings["stroke_thickness"] = stroke
-
-    with st.expander("🎨 الألوان"):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            text_color = st.color_picker("لون النص", st.session_state.settings["text_color"])
-            st.session_state.settings["text_color"] = text_color
-        with col_b:
-            active_color = st.color_picker("لون الكلمة النشطة", st.session_state.settings["active_color"])
-            st.session_state.settings["active_color"] = active_color
-
-    with st.expander("🎙️ إعدادات الصوت"):
-        slow_tts = st.checkbox("صوت بطيء (للوضوح)", st.session_state.settings.get("tts_speed", False))
-        st.session_state.settings["tts_speed"] = slow_tts
-
-        duaa_style = st.selectbox(
-            "أسلوب الدعاء",
-            ["تضرع وخشوع", "شكر وحمد", "استغفار", "رجاء وأمل", "توكل وثقة"],
-            index=0
-        )
-        st.session_state.settings["duaa_style"] = duaa_style
-
-    with st.expander("✨ تأثيرات الظهور والانتقال", expanded=True):
-        st.markdown('<div style="color:#a5b4fc; font-size:0.82rem; margin-bottom:6px;">🔤 تأثير ظهور الكلمات</div>', unsafe_allow_html=True)
-
-        word_effect_labels = {
+    with st.expander("✨ تأثيرات الكلمات والانتقال", expanded=True):
+        _WORD_EFFECTS = {
             "عشوائي 🎲": "random",
             "تلاشي ناعم": "fade_smooth",
             "تكبير بوب": "zoom_pop",
@@ -95,24 +66,9 @@ def render_sidebar():
             "وميض متنفس": "glow_pulse",
             "كشف من اليمين": "reveal_rtl",
         }
-        word_effect_names = list(word_effect_labels.keys())
-        current_word = st.session_state.settings.get("word_effect", "random")
-        word_reverse = {v: k for k, v in word_effect_labels.items()}
-        word_idx = word_effect_names.index(word_reverse.get(current_word, "عشوائي 🎲"))
-
-        selected_word = st.selectbox(
-            "تأثير الكلمات",
-            word_effect_names,
-            index=word_idx,
-            label_visibility="collapsed"
-        )
-        st.session_state.settings["word_effect"] = word_effect_labels[selected_word]
-
-        st.markdown('<div style="color:#a5b4fc; font-size:0.82rem; margin-top:10px; margin-bottom:6px;">🎞 تأثير الانتقال بين الفيديوهات</div>', unsafe_allow_html=True)
-
-        transition_labels = {
+        _TRANS_EFFECTS = {
             "عشوائي 🎲": "random",
-            "تلاشي متقاطع (Crossfade)": "crossfade",
+            "تلاشي متقاطع": "crossfade",
             "انزلاق لليسار": "slide_left",
             "انزلاق لليمين": "slide_right",
             "انزلاق للأعلى": "slide_up",
@@ -120,20 +76,48 @@ def render_sidebar():
             "تكبير وتلاشي": "zoom",
             "مسح قطري": "wipe",
         }
-        transition_names = list(transition_labels.keys())
-        current_trans = st.session_state.settings.get("transition_effect", "random")
-        trans_reverse = {v: k for k, v in transition_labels.items()}
-        trans_idx = transition_names.index(trans_reverse.get(current_trans, "عشوائي 🎲"))
+        _wr = {v: k for k, v in _WORD_EFFECTS.items()}
+        _tr = {v: k for k, v in _TRANS_EFFECTS.items()}
 
-        selected_trans = st.selectbox(
-            "تأثير الانتقال",
-            transition_names,
-            index=trans_idx,
-            label_visibility="collapsed"
-        )
-        st.session_state.settings["transition_effect"] = transition_labels[selected_trans]
+        st.markdown("🔤 **تأثير ظهور الكلمات**")
+        wnames = list(_WORD_EFFECTS.keys())
+        widx = wnames.index(_wr.get(st.session_state.settings.get("word_effect", "random"), "عشوائي 🎲"))
+        sel_w = st.selectbox("تأثير الكلمات", wnames, index=widx, key="sb_word_effect", label_visibility="collapsed")
+        st.session_state.settings["word_effect"] = _WORD_EFFECTS[sel_w]
 
-        st.caption("💡 اختر 'عشوائي' لتغيير التأثير تلقائياً في كل فيديو")
+        st.markdown("🎞 **تأثير الانتقال بين الفيديوهات**")
+        tnames = list(_TRANS_EFFECTS.keys())
+        tidx = tnames.index(_tr.get(st.session_state.settings.get("transition_effect", "random"), "عشوائي 🎲"))
+        sel_t = st.selectbox("تأثير الانتقال", tnames, index=tidx, key="sb_trans_effect", label_visibility="collapsed")
+        st.session_state.settings["transition_effect"] = _TRANS_EFFECTS[sel_t]
+
+        st.caption("💡 عشوائي = يتغير تلقائياً في كل فيديو")
+
+    with st.expander("📐 التباعد والحدود"):
+        line_height = st.slider("ارتفاع السطر", 1.0, 3.0, st.session_state.settings["line_height"], 0.1, key="sl_lh")
+        st.session_state.settings["line_height"] = line_height
+
+        stroke = st.slider("سُمك الحدود (px)", 0, 10, st.session_state.settings["stroke_thickness"], 1, key="sl_stroke")
+        st.session_state.settings["stroke_thickness"] = stroke
+
+    with st.expander("🎨 الألوان"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            text_color = st.color_picker("لون النص", st.session_state.settings["text_color"], key="cp_text")
+            st.session_state.settings["text_color"] = text_color
+        with col_b:
+            active_color = st.color_picker("لون الكلمة النشطة", st.session_state.settings["active_color"], key="cp_active")
+            st.session_state.settings["active_color"] = active_color
+
+    with st.expander("🎙️ إعدادات الصوت"):
+        slow_tts = st.checkbox("صوت بطيء (للوضوح)", st.session_state.settings.get("tts_speed", False), key="cb_tts")
+        st.session_state.settings["tts_speed"] = slow_tts
+
+        duaa_styles = ["تضرع وخشوع", "شكر وحمد", "استغفار", "رجاء وأمل", "توكل وثقة"]
+        curr_style = st.session_state.settings.get("duaa_style", "تضرع وخشوع")
+        style_idx = duaa_styles.index(curr_style) if curr_style in duaa_styles else 0
+        duaa_style = st.selectbox("أسلوب الدعاء", duaa_styles, index=style_idx, key="sb_duaa_style")
+        st.session_state.settings["duaa_style"] = duaa_style
 
 
 def render_effects_panel():

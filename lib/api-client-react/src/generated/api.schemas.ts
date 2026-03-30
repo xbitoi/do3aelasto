@@ -75,4 +75,8 @@ export interface AppSettings {
   bgOpacity?: number;
   showBackground?: boolean;
   geminiModel?: string;
+  originalVolume?: number;
+  duaaVolume?: number;
+  wordEffect?: string;
+  transitionEffect?: string;
 }

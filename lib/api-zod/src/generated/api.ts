@@ -86,6 +86,10 @@ export const GetSettingsResponse = zod.object({
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
   geminiModel: zod.string().optional(),
+  originalVolume: zod.number().optional(),
+  duaaVolume: zod.number().optional(),
+  wordEffect: zod.string().optional(),
+  transitionEffect: zod.string().optional(),
 });
 
 /**
@@ -106,6 +110,10 @@ export const UpdateSettingsBody = zod.object({
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
   geminiModel: zod.string().optional(),
+  originalVolume: zod.number().optional(),
+  duaaVolume: zod.number().optional(),
+  wordEffect: zod.string().optional(),
+  transitionEffect: zod.string().optional(),
 });
 
 export const UpdateSettingsResponse = zod.object({
@@ -123,4 +131,8 @@ export const UpdateSettingsResponse = zod.object({
   bgOpacity: zod.number().optional(),
   showBackground: zod.boolean().optional(),
   geminiModel: zod.string().optional(),
+  originalVolume: zod.number().optional(),
+  duaaVolume: zod.number().optional(),
+  wordEffect: zod.string().optional(),
+  transitionEffect: zod.string().optional(),
 });

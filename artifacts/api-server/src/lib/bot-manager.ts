@@ -38,6 +38,7 @@ export interface AppSettings {
   duaaVolume: number;
   wordEffect: string;
   transitionEffect: string;
+  transitionDuration: number;
   // Social media publishing
   youtubeToken: string;
   facebookToken: string;
@@ -64,6 +65,7 @@ export const defaultSettings: AppSettings = {
   duaaVolume: 120,
   wordEffect: "random",
   transitionEffect: "random",
+  transitionDuration: 0.5,
   youtubeToken: "",
   facebookToken: "",
   tiktokToken: "",
@@ -749,6 +751,38 @@ export function stopBot() {
   return { success: true, message: "تم إيقاف البوت بنجاح" };
 }
 
+export async function tryAutoStartBot() {
+  if (botRunning) return { success: true, message: "البوت يعمل بالفعل" };
+  const creds = loadCredentials();
+  if (!creds?.botToken || !creds?.geminiKey) {
+    addLog("⚠️ لم يتم العثور على مفاتيح محفوظة — يرجى إدخالها من الإعدادات المتقدمة", "warning");
+    return { success: false, message: "لا توجد مفاتيح محفوظة" };
+  }
+  const settings = getSettings();
+  addLog("🔄 تشغيل البوت تلقائياً من المفاتيح المحفوظة...", "info");
+  return await startBot(creds.geminiKey, creds.botToken, settings, creds.groqKey || "", true);
+}
+
+export async function sendWelcomeToAll() {
+  if (!botRunning || !botInstance) {
+    return { success: false, message: "البوت غير مُشغَّل" };
+  }
+  const chats = Array.from(knownChatIds);
+  if (chats.length === 0) {
+    return { success: false, message: "لا توجد محادثات مسجلة بعد" };
+  }
+  const welcomeText = `🌟 *أهلاً بكم من جديد!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n📋 *أوامر مفيدة:*\n• *حالة* → معرفة العمليات الجارية\n• *توقف* → إيقاف المعالجة الحالية\n• *نشر* → نشر آخر فيديو على منصات التواصل\n\n🎬 *جرّب الآن وأرسل فيديوك!*`;
+  let sent = 0;
+  for (const chatId of chats) {
+    try {
+      await botInstance.sendMessage(chatId, welcomeText, { parse_mode: "Markdown" });
+      sent++;
+    } catch {}
+  }
+  addLog(`📢 تم إرسال رسالة الترحيب إلى ${sent} محادثة`, "success");
+  return { success: true, message: `تم الإرسال إلى ${sent} محادثة` };
+}
+
 async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
   const chatId = msg.chat.id;
   const userName = msg.from?.first_name || "المستخدم";
@@ -1000,7 +1034,7 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       const finalPath = path.join(tmpDir, "final.mp4");
-      await concatVideosWithTransition(segmentPaths, finalPath, settings.transitionEffect || "random");
+      await concatVideosWithTransition(segmentPaths, finalPath, settings.transitionEffect || "random", settings.transitionDuration ?? 0.5);
       checkCancelled(chatId);
 
       setOpStage(chatId, "إرسال الفيديو النهائي...");
@@ -1117,7 +1151,7 @@ function pickTransition(effect: string): string {
   return transitions[effect] || "fade";
 }
 
-async function concatVideosWithTransition(videoPaths: string[], outputPath: string, transitionEffect: string) {
+async function concatVideosWithTransition(videoPaths: string[], outputPath: string, transitionEffect: string, transitionDuration = 0.5) {
   const n = videoPaths.length;
   if (n === 1) {
     fs.copyFileSync(videoPaths[0], outputPath);
@@ -1130,7 +1164,7 @@ async function concatVideosWithTransition(videoPaths: string[], outputPath: stri
     durations.push(await getVideoDuration(vp));
   }
 
-  const TRANS_DUR = 0.5; // seconds per transition
+  const TRANS_DUR = Math.max(0, Math.min(4, transitionDuration ?? 0.5));
 
   const inputs = videoPaths.map(p => `-i "${p}"`).join(" ");
 

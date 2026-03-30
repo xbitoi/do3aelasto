@@ -79,4 +79,5 @@ export interface AppSettings {
   duaaVolume?: number;
   wordEffect?: string;
   transitionEffect?: string;
+  transitionDuration?: number;
 }

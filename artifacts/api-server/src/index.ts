@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { tryAutoStartBot } from "./lib/bot-manager.js";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,10 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  tryAutoStartBot().then((result) => {
+    logger.info({ result }, "Auto-start bot result");
+  }).catch((err) => {
+    logger.warn({ err }, "Auto-start bot failed");
+  });
 });

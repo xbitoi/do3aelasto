@@ -16,5 +16,10 @@
   "originalVolume": 40,
   "duaaVolume": 145,
   "wordEffect": "swing_right",
-  "transitionEffect": "slide_up"
+  "transitionEffect": "slide_up",
+  "transitionDuration": 1.6,
+  "youtubeToken": "",
+  "facebookToken": "",
+  "tiktokToken": "",
+  "publishDescription": ""
 }

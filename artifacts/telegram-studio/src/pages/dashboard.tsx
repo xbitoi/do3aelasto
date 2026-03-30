@@ -1,75 +1,44 @@
 import { useState, useEffect, useRef } from "react";
-import { useGetSettings, useUpdateSettings, useStartBot, useStopBot, useTestBot, useGetBotStatus } from "@workspace/api-client-react";
+import { useGetSettings, useUpdateSettings, useGetBotStatus } from "@workspace/api-client-react";
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
-import { PremiumCard, PremiumButton, Input, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
+import { PremiumCard, PremiumButton, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown, RefreshCw, Bot, Volume2, Loader2, Youtube, Facebook, Share2, CheckCircle2, XCircle, Wifi, FileText, Send } from "lucide-react";
+import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, Loader2, Share2, FileText, Send, MessageCircle, Wifi } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting, isStopping }: any) {
-  const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || '');
-  const [groqKey, setGroqKey] = useState(localStorage.getItem('groqKey') || '');
-  const [botToken, setBotToken] = useState(localStorage.getItem('botToken') || '');
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem('geminiKey', geminiKey);
-    localStorage.setItem('groqKey', groqKey);
-    localStorage.setItem('botToken', botToken);
-  }, [geminiKey, groqKey, botToken]);
-
+function BotStatusMiniCard({ status, onSendWelcome, isSendingWelcome }: { status?: BotStatus; onSendWelcome: () => void; isSendingWelcome: boolean }) {
+  const isRunning = status?.running || false;
   return (
-    <div className="relative group rounded-[2rem] bg-card border border-border shadow-2xl overflow-hidden">
+    <div className="relative group rounded-[2rem] bg-card border border-border shadow-2xl overflow-hidden p-6 sm:p-8">
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
-      <button
-        onClick={() => setOpen(!open)}
-        className="relative z-10 w-full flex items-center justify-between gap-4 p-6 sm:p-8 text-right hover:bg-white/3 transition-colors"
-      >
+      <div className="relative z-10 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="p-2.5 bg-gradient-to-br from-primary/20 to-primary/5 rounded-xl border border-primary/20 shadow-inner">
-            <Key className="w-5 h-5 text-primary" />
+          <div className={cn("p-2.5 rounded-xl border shadow-inner transition-colors", isRunning ? "bg-success/10 border-success/30" : "bg-destructive/10 border-destructive/30")}>
+            <Wifi className={cn("w-5 h-5", isRunning ? "text-success" : "text-destructive")} />
           </div>
-          <h3 className="text-xl font-black text-foreground tracking-tight">مفاتيح API والتحكم</h3>
+          <div>
+            <h3 className="text-xl font-black text-foreground tracking-tight">البوت التلقائي</h3>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="relative flex h-2.5 w-2.5">
+                {isRunning && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />}
+                <span className={cn("relative inline-flex rounded-full h-2.5 w-2.5", isRunning ? "bg-success" : "bg-destructive")} />
+              </span>
+              <span className={cn("text-sm font-bold", isRunning ? "text-success" : "text-destructive")}>
+                {isRunning ? `يعمل — ${status?.botName || ""}` : "متوقف — أضف المفاتيح من الإعدادات المتقدمة"}
+              </span>
+            </div>
+          </div>
         </div>
-        <ChevronDown className={cn("w-5 h-5 text-muted-foreground transition-transform duration-300", open && "rotate-180")} />
-      </button>
-
-      <div className={cn("overflow-hidden transition-all duration-300", open ? "max-h-[600px]" : "max-h-0")}>
-        <div className="relative z-10 px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground/70 ml-1 block">مفتاح Gemini AI</label>
-            <Input type="password" placeholder="AIzaSy..." value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground/70 ml-1 block">
-              مفتاح Groq AI
-              <span className="text-xs text-muted-foreground font-normal mr-2">(احتياطي عند فشل Gemini)</span>
-            </label>
-            <Input type="password" placeholder="gsk_..." value={groqKey} onChange={(e) => setGroqKey(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground/70 ml-1 block">توكن بوت تيليغرام</label>
-            <Input type="password" placeholder="123456789:AA..." value={botToken} onChange={(e) => setBotToken(e.target.value)} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <PremiumButton onClick={() => onStart(geminiKey, botToken, groqKey)} disabled={isRunning} isLoading={isStarting}>
-              <Play className="w-4 h-4" />
-              تشغيل
-            </PremiumButton>
-            <PremiumButton variant="destructive" onClick={onStop} disabled={!isRunning} isLoading={isStopping}>
-              <Square className="w-4 h-4 fill-current" />
-              إيقاف
-            </PremiumButton>
-          </div>
-          <PremiumButton variant="secondary" onClick={() => onTest(botToken)} isLoading={isTesting} className="w-full">
-            <Server className="w-4 h-4" />
-            اختبار الاتصال
-          </PremiumButton>
-        </div>
+        <PremiumButton variant="secondary" onClick={onSendWelcome} isLoading={isSendingWelcome} disabled={!isRunning}>
+          <MessageCircle className="w-4 h-4" />
+          إرسال ترحيب
+        </PremiumButton>
       </div>
+      <p className="relative z-10 mt-4 text-[11px] text-muted-foreground/50 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
+        🤖 يبدأ البوت تلقائياً عند تشغيل التطبيق — أدخل المفاتيح من <span className="text-primary font-bold">الإعدادات المتقدمة</span> لتفعيله
+      </p>
     </div>
-  )
+  );
 }
 
 const DEFAULT_GEMINI_MODELS = [
@@ -84,14 +53,7 @@ const DEFAULT_GEMINI_MODELS = [
 
 // ── Social Media Card ──────────────────────────────────────────────────────
 
-interface PlatformStatus {
-  loading: boolean;
-  success?: boolean;
-  info?: string;
-  error?: string;
-}
-
-function PlatformStatusBadge({ status }: { status: PlatformStatus }) {
+function _unused_PlatformStatusBadge({ status }: { status: { loading: boolean; success?: boolean; info?: string; error?: string } }) {
   if (status.loading) {
     return (
       <span className="flex items-center gap-1 text-xs text-primary font-bold">
@@ -119,50 +81,8 @@ function PlatformStatusBadge({ status }: { status: PlatformStatus }) {
   return null;
 }
 
-function SocialMediaCard({ settings, setSettings, onSave, isSaving }: any) {
+function SocialMediaCard({ settings, setSettings, isSaving }: any) {
   const [open, setOpen] = useState(false);
-  const { toast } = useToast();
-
-  const [ytStatus, setYtStatus] = useState<PlatformStatus>({ loading: false });
-  const [fbStatus, setFbStatus] = useState<PlatformStatus>({ loading: false });
-  const [ttStatus, setTtStatus] = useState<PlatformStatus>({ loading: false });
-
-  const testPlatform = async (platform: "youtube" | "facebook" | "tiktok") => {
-    const token = platform === "youtube" ? settings?.youtubeToken
-      : platform === "facebook" ? settings?.facebookToken
-      : settings?.tiktokToken;
-
-    if (!token?.trim()) {
-      toast({ title: "تنبيه", description: "أدخل التوكن أولاً", variant: "destructive" });
-      return;
-    }
-
-    const setStatus = platform === "youtube" ? setYtStatus : platform === "facebook" ? setFbStatus : setTtStatus;
-    setStatus({ loading: true });
-
-    try {
-      const res = await fetch(`/api/social/test-${platform}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        let info = "";
-        if (platform === "youtube") info = `${data.channelName}${data.subscribers ? ` · ${data.subscribers} مشترك` : ""}`;
-        if (platform === "facebook") info = `${data.pageName}${data.followers ? ` · ${data.followers} متابع` : ""}`;
-        if (platform === "tiktok") info = `${data.displayName || data.username}${data.followers ? ` · ${data.followers} متابع` : ""}`;
-        setStatus({ loading: false, success: true, info });
-        toast({ title: "✅ تم التحقق بنجاح", description: info });
-      } else {
-        setStatus({ loading: false, success: false, error: data.error || "فشل الاختبار" });
-        toast({ title: "❌ فشل الاختبار", description: data.error, variant: "destructive" });
-      }
-    } catch (err) {
-      setStatus({ loading: false, success: false, error: "خطأ في الاتصال" });
-    }
-  };
 
   if (!settings) return null;
 
@@ -184,179 +104,67 @@ function SocialMediaCard({ settings, setSettings, onSave, isSaving }: any) {
             <Share2 className="w-5 h-5 text-red-400" />
           </div>
           <div className="flex flex-col items-start">
-            <h3 className="text-xl font-black text-foreground tracking-tight">منصات النشر الاجتماعي</h3>
+            <h3 className="text-xl font-black text-foreground tracking-tight">النشر الاجتماعي</h3>
             {activePlatforms.length > 0 ? (
               <span className="text-xs text-green-400 font-bold mt-0.5">{activePlatforms.join(" · ")} — جاهز للنشر</span>
             ) : (
-              <span className="text-xs text-muted-foreground/60 font-medium mt-0.5">أرسل "نشر" في تيليغرام للنشر التلقائي</span>
+              <span className="text-xs text-muted-foreground/60 font-medium mt-0.5">أضف التوكنات من الإعدادات المتقدمة</span>
             )}
           </div>
         </div>
         <ChevronDown className={cn("w-5 h-5 text-muted-foreground transition-transform duration-300", open && "rotate-180")} />
       </button>
 
-      <div className={cn("overflow-hidden transition-all duration-500", open ? "max-h-[900px]" : "max-h-0")}>
-        <div className="relative z-10 px-6 sm:px-8 pb-6 sm:pb-8 space-y-5">
+      <div className={cn("overflow-hidden transition-all duration-500", open ? "max-h-[400px]" : "max-h-0")}>
+        <div className="relative z-10 px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
 
-          {/* Usage hint */}
           <div className="flex items-start gap-3 bg-primary/5 border border-primary/15 rounded-2xl px-4 py-3">
             <Send className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             <p className="text-xs text-foreground/70 leading-relaxed">
-              أرسل كلمة <span className="text-primary font-black">نشر</span> في محادثة البوت لنشر آخر فيديو تم دمجه تلقائياً على المنصات المُفعَّلة مع الدعاء كعنوان.
+              أرسل كلمة <span className="text-primary font-black">نشر</span> في محادثة البوت لنشر آخر فيديو تلقائياً. أدخل التوكنات من <span className="text-primary font-bold">الإعدادات المتقدمة</span>.
             </p>
           </div>
 
-          {/* YouTube */}
-          <div className="space-y-3 p-4 rounded-2xl bg-black/30 border border-white/5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-red-500/15 border border-red-500/20">
-                  <Youtube className="w-4 h-4 text-red-500" />
-                </div>
-                <span className="text-sm font-black text-foreground">يوتيوب</span>
-                {settings.youtubeToken && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">مُفعَّل</span>}
+          {/* Active platforms status */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { key: "youtubeToken", label: "يوتيوب", color: "red" },
+              { key: "facebookToken", label: "فيسبوك", color: "blue" },
+              { key: "tiktokToken", label: "تيك توك", color: "pink" },
+            ].map(({ key, label, color }) => (
+              <div key={key} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border text-center", settings[key] ? `bg-${color}-500/10 border-${color}-500/20` : "bg-black/20 border-border/30")}>
+                <span className={cn("text-[10px] font-black", settings[key] ? "text-green-400" : "text-muted-foreground/50")}>{settings[key] ? "✓ مُفعَّل" : "غير مُفعَّل"}</span>
+                <span className="text-xs font-bold text-foreground/70">{label}</span>
               </div>
-              <button
-                onClick={() => testPlatform("youtube")}
-                disabled={ytStatus.loading}
-                className="flex items-center gap-1.5 text-xs font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                <Wifi className="w-3 h-3" />
-                اختبار
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-muted-foreground/70 block">OAuth2 Access Token</label>
-              <Input
-                type="password"
-                placeholder="ya29.a0AfB_..."
-                value={settings.youtubeToken || ""}
-                onChange={(e: any) => setSettings({ ...settings, youtubeToken: e.target.value })}
-              />
-            </div>
-
-            {(ytStatus.loading || ytStatus.success !== undefined) && (
-              <PlatformStatusBadge status={ytStatus} />
-            )}
-
-            <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-              احصل على التوكن من <span className="text-primary font-mono">Google OAuth2 Playground</span> مع نطاق
-              <span className="font-mono"> youtube.upload</span>
-            </p>
-          </div>
-
-          {/* Facebook */}
-          <div className="space-y-3 p-4 rounded-2xl bg-black/30 border border-white/5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-blue-600/15 border border-blue-600/20">
-                  <Facebook className="w-4 h-4 text-blue-500" />
-                </div>
-                <span className="text-sm font-black text-foreground">فيسبوك</span>
-                {settings.facebookToken && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">مُفعَّل</span>}
-              </div>
-              <button
-                onClick={() => testPlatform("facebook")}
-                disabled={fbStatus.loading}
-                className="flex items-center gap-1.5 text-xs font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                <Wifi className="w-3 h-3" />
-                اختبار
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-muted-foreground/70 block">Page Access Token</label>
-              <Input
-                type="password"
-                placeholder="EAABwzLixnjYBO..."
-                value={settings.facebookToken || ""}
-                onChange={(e: any) => setSettings({ ...settings, facebookToken: e.target.value })}
-              />
-            </div>
-
-            {(fbStatus.loading || fbStatus.success !== undefined) && (
-              <PlatformStatusBadge status={fbStatus} />
-            )}
-
-            <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-              احصل على التوكن من <span className="text-primary font-mono">Meta for Developers</span> → Graph API Explorer مع صلاحية <span className="font-mono">pages_manage_posts</span>
-            </p>
-          </div>
-
-          {/* TikTok */}
-          <div className="space-y-3 p-4 rounded-2xl bg-black/30 border border-white/5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-pink-500/15 border border-pink-500/20">
-                  <svg className="w-4 h-4 text-pink-400" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.28 8.28 0 004.84 1.55V6.79a4.85 4.85 0 01-1.07-.1z"/>
-                  </svg>
-                </div>
-                <span className="text-sm font-black text-foreground">تيك توك</span>
-                {settings.tiktokToken && <span className="text-[10px] text-green-400 font-bold bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">مُفعَّل</span>}
-              </div>
-              <button
-                onClick={() => testPlatform("tiktok")}
-                disabled={ttStatus.loading}
-                className="flex items-center gap-1.5 text-xs font-bold text-pink-400 bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-50"
-              >
-                <Wifi className="w-3 h-3" />
-                اختبار
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-muted-foreground/70 block">Content Posting Access Token</label>
-              <Input
-                type="password"
-                placeholder="act.example..."
-                value={settings.tiktokToken || ""}
-                onChange={(e: any) => setSettings({ ...settings, tiktokToken: e.target.value })}
-              />
-            </div>
-
-            {(ttStatus.loading || ttStatus.success !== undefined) && (
-              <PlatformStatusBadge status={ttStatus} />
-            )}
-
-            <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-              احصل على التوكن من <span className="text-primary font-mono">TikTok for Developers</span> → Content Posting API مع صلاحية <span className="font-mono">video.publish</span>
-            </p>
+            ))}
           </div>
 
           {/* Description field */}
-          <div className="space-y-3 p-4 rounded-2xl bg-gradient-to-br from-primary/5 to-accent/5 border border-primary/15">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-primary/15 border border-primary/20">
-                <FileText className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <span className="text-sm font-black text-foreground">نص الوصف الإضافي</span>
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">يُضاف أسفل الدعاء في وصف جميع المنصات</p>
-              </div>
-            </div>
-
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5 text-primary" />
+              نص الوصف الإضافي
+            </label>
             <textarea
               value={settings.publishDescription || ""}
               onChange={(e) => setSettings({ ...settings, publishDescription: e.target.value })}
-              placeholder="مثال: قناتنا للدعاء والذكر | لا تنسى المتابعة والمشاركة 🤲&#10;#دعاء #إسلام #قرآن"
-              rows={4}
+              placeholder="مثال: قناتنا للدعاء والذكر | #دعاء #إسلام"
+              rows={3}
               className="w-full bg-black/40 border border-border rounded-2xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none leading-relaxed font-medium"
               dir="rtl"
             />
-
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground/50">
-              <span>يظهر في الوصف: 🤲 {"{الدعاء}"} ━━━━ {settings.publishDescription ? "{نصك}" : "(لا يوجد نص إضافي)"}</span>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground/40">
+              <span>يُضاف أسفل الدعاء في وصف جميع المنصات</span>
               <span>{(settings.publishDescription || "").length} حرف</span>
             </div>
           </div>
 
-          <PremiumButton onClick={onSave} isLoading={isSaving} className="w-full">
-            <Save className="w-4 h-4" />
-            حفظ إعدادات النشر
-          </PremiumButton>
+          {isSaving && (
+            <div className="flex items-center justify-center gap-2 text-xs text-primary/70 font-semibold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              جاري الحفظ التلقائي...
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -470,6 +278,13 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  {label: "تكبير وتلاشي", value: "zoom"},
                  {label: "مسح قطري", value: "wipe"},
                ]} />
+               <Slider
+                 label="مدة تأثير الانتقال"
+                 min={0} max={4} step={0.1}
+                 value={settings.transitionDuration ?? 0.5}
+                 onChange={(v: number) => setSettings({...settings, transitionDuration: v})}
+                 unit="ث"
+               />
                <p className="text-[10px] text-muted-foreground/50 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
                  💡 يُطبَّق تأثير الانتقال فعلياً بين المقاطع عند الدمج — اختر <span className="text-primary font-bold">عشوائي</span> لتنوع تلقائي
                </p>
@@ -656,10 +471,12 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
         )}
       </div>
 
-      <PremiumButton onClick={onSave} isLoading={isSaving} className="w-full mt-6">
-        <Save className="w-4 h-4" />
-        حفظ الإعدادات
-      </PremiumButton>
+      {isSaving && (
+        <div className="flex items-center justify-center gap-2 mt-4 text-xs text-primary/70 font-semibold">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          جاري الحفظ التلقائي...
+        </div>
+      )}
     </PremiumCard>
   )
 }
@@ -874,17 +691,14 @@ function LogsCard({ logs }: { logs: LogEntry[] }) {
 }
 
 export function Dashboard() {
-  const { data: status, refetch: refetchStatus } = useGetBotStatus({
-    query: { refetchInterval: 3000 }
-  });
+  const { data: status } = useGetBotStatus({ query: { refetchInterval: 3000 } });
   const { data: serverSettings } = useGetSettings();
   const { mutate: updateSettings, isPending: isUpdating } = useUpdateSettings();
-  const { mutate: startBot, isPending: isStarting } = useStartBot();
-  const { mutate: stopBot, isPending: isStopping } = useStopBot();
-  const { mutate: testBot, isPending: isTesting } = useTestBot();
   const { toast } = useToast();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [isSendingWelcome, setIsSendingWelcome] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (serverSettings && !settings) {
@@ -892,77 +706,46 @@ export function Dashboard() {
     }
   }, [serverSettings]);
 
-  const isRunning = status?.running || false;
+  const handleSettingChange = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      updateSettings({ data: newSettings });
+    }, 1200);
+  };
 
-  const handleStart = (geminiKey: string, botToken: string, groqKey?: string) => {
-    if (!geminiKey || !botToken) {
-      toast({ title: "تنبيه", description: "الرجاء إدخال المفاتيح أولاً في لوحة التحكم", variant: "destructive" });
-      return;
+  const handleSendWelcome = async () => {
+    setIsSendingWelcome(true);
+    try {
+      const res = await fetch("/api/bot/send-welcome", { method: "POST" });
+      const data = await res.json() as { success: boolean; message: string };
+      if (data.success) toast({ title: "تم الإرسال", description: data.message });
+      else toast({ title: "تنبيه", description: data.message, variant: "destructive" });
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر إرسال الرسالة", variant: "destructive" });
+    } finally {
+      setIsSendingWelcome(false);
     }
-    startBot({ data: { geminiKey, botToken, groqKey: groqKey || "" } }, {
-      onSuccess: (res) => {
-        if (res.success) {
-          toast({ title: "نجاح التشغيل", description: res.message });
-          refetchStatus();
-        } else {
-          toast({ title: "خطأ في التفعيل", description: res.message, variant: "destructive" });
-        }
-      }
-    });
-  }
-
-  const handleStop = () => {
-    stopBot(undefined, {
-      onSuccess: (res) => {
-        toast({ title: "إيقاف", description: res.message });
-        refetchStatus();
-      }
-    });
-  }
-
-  const handleTest = (botToken: string) => {
-    if (!botToken) {
-      toast({ title: "تنبيه", description: "الرجاء إدخال توكن البوت لاختبار الاتصال" });
-      return;
-    }
-    testBot({ data: { botToken } }, {
-      onSuccess: (res) => {
-        if (res.success) toast({ title: "تم الاتصال بنجاح", description: `البوت متصل: ${res.botName}` });
-        else toast({ title: "فشل الاتصال", description: res.error, variant: "destructive" });
-      }
-    });
-  }
-
-  const handleSaveSettings = () => {
-    if (settings) {
-      updateSettings({ data: settings }, {
-        onSuccess: () => toast({ title: "تم", description: "حُفظت الإعدادات والتنسيقات بنجاح" })
-      });
-    }
-  }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
       <div className="lg:col-span-5 space-y-8 lg:space-y-10">
-        <ApiKeysCard 
-          isRunning={isRunning} 
-          onStart={handleStart} 
-          onStop={handleStop} 
-          onTest={handleTest}
-          isStarting={isStarting}
-          isStopping={isStopping}
-          isTesting={isTesting}
+        <BotStatusMiniCard
+          status={status}
+          onSendWelcome={handleSendWelcome}
+          isSendingWelcome={isSendingWelcome}
         />
         <DesignSettingsCard 
           settings={settings} 
-          setSettings={setSettings} 
-          onSave={handleSaveSettings} 
+          setSettings={handleSettingChange} 
+          onSave={() => {}} 
           isSaving={isUpdating} 
         />
         <SocialMediaCard
           settings={settings}
-          setSettings={setSettings}
-          onSave={handleSaveSettings}
+          setSettings={handleSettingChange}
+          onSave={() => {}}
           isSaving={isUpdating}
         />
       </div>

@@ -13,6 +13,7 @@ import {
   testYouTubeToken,
   testFacebookToken,
   testTikTokToken,
+  sendWelcomeToAll,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -118,6 +119,11 @@ router.post("/social/test-tiktok", async (req, res) => {
     return;
   }
   const result = await testTikTokToken(token);
+  res.json(result);
+});
+
+router.post("/bot/send-welcome", async (_req, res) => {
+  const result = await sendWelcomeToAll();
   res.json(result);
 });
 

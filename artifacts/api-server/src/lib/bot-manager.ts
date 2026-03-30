@@ -35,7 +35,7 @@ export interface AppSettings {
 }
 
 export const defaultSettings: AppSettings = {
-  font: "Cairo",
+  font: "BeIn",
   fontSize: 60,
   yPosition: 80,
   lineHeight: 1.4,
@@ -504,10 +504,26 @@ y_ratio = ${params.yRatio}
 stroke = ${params.strokeWidth}
 text_r, text_g, text_b = ${r}, ${g}, ${b}
 
-try:
-    font = ImageFont.truetype(${JSON.stringify(params.fontPath)}, font_size)
-except Exception:
-    font = ImageFont.load_default()
+font_path = ${JSON.stringify(params.fontPath)}
+font = None
+# Try requested font first, then fallback to known Arabic fonts
+fallback_fonts = [
+    font_path,
+    "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/bein.ttf",
+    "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/boutros.ttf",
+    "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/dima.ttf",
+    "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/takeaway.ttf",
+]
+for fp in fallback_fonts:
+    if not fp:
+        continue
+    try:
+        font = ImageFont.truetype(fp, font_size)
+        break
+    except Exception:
+        continue
+if font is None:
+    raise RuntimeError("لم يتم العثور على أي خط عربي صالح!")
 
 # Word-wrap: split Arabic text into lines that fit within 90% of video width
 words = text.split()
@@ -718,30 +734,27 @@ async function getVideoDuration(videoPath: string): Promise<number> {
 }
 
 function getFontPath(fontName: string): string {
+  const fontsDir = "/home/runner/workspace/artifacts/telegram-bot-studio/fonts";
   const fontMap: Record<string, string> = {
-    BeIn: "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/bein.ttf",
-    Boutros: "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/boutros.ttf",
-    Dima: "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/dima.ttf",
-    Takeaway: "/home/runner/workspace/artifacts/telegram-bot-studio/fonts/takeaway.ttf",
+    BeIn:     `${fontsDir}/bein.ttf`,
+    Boutros:  `${fontsDir}/boutros.ttf`,
+    Dima:     `${fontsDir}/dima.ttf`,
+    Takeaway: `${fontsDir}/takeaway.ttf`,
   };
 
   const p = fontMap[fontName];
   if (p && fs.existsSync(p)) return p;
 
-  const fallbacks = [
-    "/usr/share/fonts/truetype/arabic",
-    "/nix/store",
-  ];
-
-  for (const dir of fallbacks) {
-    try {
-      const result = execSync(`find "${dir}" -name "*.ttf" 2>/dev/null | head -1`, { encoding: "utf8" }).trim();
-      if (result) return result;
-    } catch {
-      continue;
+  // Fallback: try any font in the known fonts directory
+  const knownFonts = Object.values(fontMap);
+  for (const f of knownFonts) {
+    if (fs.existsSync(f)) {
+      addLog(`⚠️ خط "${fontName}" غير موجود، استخدام بديل: ${path.basename(f)}`, "warning");
+      return f;
     }
   }
 
+  addLog(`❌ لم يُعثر على أي خط عربي!`, "error");
   return "";
 }
 

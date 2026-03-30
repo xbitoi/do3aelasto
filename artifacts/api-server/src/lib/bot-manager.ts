@@ -34,6 +34,8 @@ export interface AppSettings {
   bgOpacity: number;
   showBackground: boolean;
   geminiModel: string;
+  originalVolume: number;  // 0-200 (%)
+  duaaVolume: number;      // 0-200 (%)
 }
 
 export const defaultSettings: AppSettings = {
@@ -51,6 +53,8 @@ export const defaultSettings: AppSettings = {
   bgOpacity: 40,
   showBackground: true,
   geminiModel: "auto",
+  originalVolume: 60,
+  duaaVolume: 120,
 };
 
 let botInstance: TelegramBot | null = null;
@@ -910,18 +914,21 @@ async function processVideoWithText(
   let filterComplex: string;
   let audioMap: string;
 
+  const origVol = ((settings.originalVolume ?? 60) / 100).toFixed(3);
+  const duaaVol = ((settings.duaaVolume ?? 120) / 100).toFixed(3);
+
   if (hasAudio) {
     filterComplex = [
       `[0:v][2:v]overlay=0:0:format=auto[vout]`,
-      `[1:a]apad=whole_dur=${videoDuration}[tts_full]`,
-      `[0:a]volume=0.5[orig_vol]`,
+      `[1:a]volume=${duaaVol},apad=whole_dur=${videoDuration}[tts_full]`,
+      `[0:a]volume=${origVol}[orig_vol]`,
       `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
     ].join(";");
     audioMap = `[aout]`;
   } else {
     filterComplex = [
       `[0:v][2:v]overlay=0:0:format=auto[vout]`,
-      `[1:a]apad=whole_dur=${videoDuration}[aout]`,
+      `[1:a]volume=${duaaVol},apad=whole_dur=${videoDuration}[aout]`,
     ].join(";");
     audioMap = `[aout]`;
   }

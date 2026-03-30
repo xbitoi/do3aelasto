@@ -63,10 +63,10 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
 
 export function Slider({ value, min, max, step, onChange, label, unit, disabled }: any) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-1.5">
       <div className="flex justify-between items-center">
-        <label className="text-sm font-bold text-foreground/90">{label}</label>
-        <span className="text-xs text-primary bg-primary/10 px-3 py-1.5 rounded-lg font-mono font-black border border-primary/20 shadow-sm">
+        <label className="text-xs font-bold text-foreground/80">{label}</label>
+        <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-md font-mono font-black border border-primary/20">
           {value}{unit}
         </span>
       </div>
@@ -76,7 +76,7 @@ export function Slider({ value, min, max, step, onChange, label, unit, disabled 
         value={value} 
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
-        className="w-full h-2.5 bg-black/50 rounded-full appearance-none cursor-pointer accent-primary disabled:opacity-50 border border-border/50"
+        className="w-full h-1.5 bg-black/50 rounded-full appearance-none cursor-pointer accent-primary disabled:opacity-50 border border-border/50"
       />
     </div>
   );
@@ -84,21 +84,21 @@ export function Slider({ value, min, max, step, onChange, label, unit, disabled 
 
 export function ColorPicker({ value, onChange, label }: any) {
   return (
-    <div className="space-y-3">
-      <label className="text-sm font-bold text-foreground/90">{label}</label>
-      <div className="flex items-center gap-4">
-        <div className="relative overflow-hidden rounded-xl w-16 h-14 border-2 border-border shrink-0 cursor-pointer shadow-md hover:border-primary/50 transition-colors">
+    <div className="space-y-1.5">
+      <label className="text-xs font-bold text-foreground/80">{label}</label>
+      <div className="flex items-center gap-3">
+        <div className="relative overflow-hidden rounded-lg w-11 h-9 border border-border shrink-0 cursor-pointer shadow-sm hover:border-primary/50 transition-colors">
           <input 
             type="color" 
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="absolute -inset-4 w-24 h-24 cursor-pointer"
+            className="absolute -inset-3 w-20 h-16 cursor-pointer"
           />
         </div>
         <Input 
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="font-mono text-left tracking-wider uppercase"
+          className="font-mono text-left tracking-wider uppercase text-xs py-2"
           dir="ltr"
         />
       </div>
@@ -108,13 +108,13 @@ export function ColorPicker({ value, onChange, label }: any) {
 
 export function Select({ value, onChange, options, label }: any) {
   return (
-    <div className="space-y-3">
-      {label && <label className="text-sm font-bold text-foreground/90">{label}</label>}
+    <div className="space-y-1.5">
+      {label && <label className="text-xs font-bold text-foreground/80">{label}</label>}
       <div className="relative">
         <select 
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none bg-black/40 border border-border rounded-xl px-5 py-4 pl-12 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/20 transition-all text-foreground font-bold shadow-inner cursor-pointer hover:border-border/80"
+          className="w-full appearance-none bg-black/40 border border-border rounded-xl px-4 py-2.5 pl-10 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-foreground text-sm font-bold shadow-inner cursor-pointer hover:border-border/80"
         >
           {options.map((opt: any) => (
             <option key={opt.value} value={opt.value} className="bg-card text-foreground font-semibold">
@@ -122,8 +122,8 @@ export function Select({ value, onChange, options, label }: any) {
             </option>
           ))}
         </select>
-        <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none text-muted-foreground">
-          <ChevronDown className="w-5 h-5" />
+        <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground">
+          <ChevronDown className="w-4 h-4" />
         </div>
       </div>
     </div>

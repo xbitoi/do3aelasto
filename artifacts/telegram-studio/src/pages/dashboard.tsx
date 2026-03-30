@@ -3,13 +3,14 @@ import { useGetSettings, useUpdateSettings, useStartBot, useStopBot, useTestBot,
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Input, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server } from "lucide-react";
+import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting, isStopping }: any) {
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || '');
   const [groqKey, setGroqKey] = useState(localStorage.getItem('groqKey') || '');
   const [botToken, setBotToken] = useState(localStorage.getItem('botToken') || '');
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('geminiKey', geminiKey);
@@ -18,56 +19,56 @@ function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting
   }, [geminiKey, groqKey, botToken]);
 
   return (
-    <PremiumCard title="مفاتيح API والتحكم" icon={Key}>
-      <div className="space-y-6 mb-8">
-        <div className="space-y-3">
-          <label className="text-sm font-bold text-foreground/90 ml-1 block">مفتاح Gemini AI</label>
-          <Input type="password" placeholder="AIzaSy..." value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} />
-        </div>
-        <div className="space-y-3">
-          <label className="text-sm font-bold text-foreground/90 ml-1 block">
-            مفتاح Groq AI
-            <span className="text-xs text-muted-foreground font-normal mr-2">(احتياطي عند فشل Gemini)</span>
-          </label>
-          <Input type="password" placeholder="gsk_..." value={groqKey} onChange={(e) => setGroqKey(e.target.value)} />
-        </div>
-        <div className="space-y-3">
-          <label className="text-sm font-bold text-foreground/90 ml-1 block">توكن بوت تيليغرام</label>
-          <Input type="password" placeholder="123456789:AA..." value={botToken} onChange={(e) => setBotToken(e.target.value)} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <PremiumButton 
-          onClick={() => onStart(geminiKey, botToken, groqKey)} 
-          disabled={isRunning}
-          isLoading={isStarting}
-        >
-          <Play className="w-5 h-5" />
-          تشغيل البوت
-        </PremiumButton>
-        
-        <PremiumButton 
-          variant="destructive" 
-          onClick={onStop} 
-          disabled={!isRunning}
-          isLoading={isStopping}
-        >
-          <Square className="w-5 h-5 fill-current" />
-          إيقاف البوت
-        </PremiumButton>
-      </div>
-
-      <PremiumButton 
-        variant="secondary" 
-        onClick={() => onTest(botToken)}
-        isLoading={isTesting}
-        className="w-full"
+    <div className="relative group rounded-[2rem] bg-card border border-border shadow-2xl overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative z-10 w-full flex items-center justify-between gap-4 p-6 sm:p-8 text-right hover:bg-white/3 transition-colors"
       >
-        <Server className="w-5 h-5" />
-        اختبار الاتصال
-      </PremiumButton>
-    </PremiumCard>
+        <div className="flex items-center gap-4">
+          <div className="p-2.5 bg-gradient-to-br from-primary/20 to-primary/5 rounded-xl border border-primary/20 shadow-inner">
+            <Key className="w-5 h-5 text-primary" />
+          </div>
+          <h3 className="text-xl font-black text-foreground tracking-tight">مفاتيح API والتحكم</h3>
+        </div>
+        <ChevronDown className={cn("w-5 h-5 text-muted-foreground transition-transform duration-300", open && "rotate-180")} />
+      </button>
+
+      <div className={cn("overflow-hidden transition-all duration-300", open ? "max-h-[600px]" : "max-h-0")}>
+        <div className="relative z-10 px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 ml-1 block">مفتاح Gemini AI</label>
+            <Input type="password" placeholder="AIzaSy..." value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 ml-1 block">
+              مفتاح Groq AI
+              <span className="text-xs text-muted-foreground font-normal mr-2">(احتياطي عند فشل Gemini)</span>
+            </label>
+            <Input type="password" placeholder="gsk_..." value={groqKey} onChange={(e) => setGroqKey(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-foreground/70 ml-1 block">توكن بوت تيليغرام</label>
+            <Input type="password" placeholder="123456789:AA..." value={botToken} onChange={(e) => setBotToken(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <PremiumButton onClick={() => onStart(geminiKey, botToken, groqKey)} disabled={isRunning} isLoading={isStarting}>
+              <Play className="w-4 h-4" />
+              تشغيل
+            </PremiumButton>
+            <PremiumButton variant="destructive" onClick={onStop} disabled={!isRunning} isLoading={isStopping}>
+              <Square className="w-4 h-4 fill-current" />
+              إيقاف
+            </PremiumButton>
+          </div>
+          <PremiumButton variant="secondary" onClick={() => onTest(botToken)} isLoading={isTesting} className="w-full">
+            <Server className="w-4 h-4" />
+            اختبار الاتصال
+          </PremiumButton>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -90,14 +91,14 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
         </button>
       </div>
 
-      <div className="space-y-8 min-h-[380px]">
+      <div className="space-y-4 min-h-[300px]">
         {tab === 'text' && (
-           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
              <Select label="نوع الخط" value={settings.font} onChange={(v: string) => setSettings({...settings, font: v})} options={[
-               {label: "BeIn - خط القاهرة الحديث", value: "BeIn"},
-               {label: "Boutros - خط كلاسيكي", value: "Boutros"},
-               {label: "Dima - خط قرآني", value: "Dima"},
-               {label: "Takeaway - خط عصري", value: "Takeaway"}
+               {label: "BeIn - القاهرة الحديث", value: "BeIn"},
+               {label: "Boutros - كلاسيكي", value: "Boutros"},
+               {label: "Dima - قرآني", value: "Dima"},
+               {label: "Takeaway - عصري", value: "Takeaway"}
              ]} />
              <Slider label="حجم الخط" min={20} max={150} step={1} value={settings.fontSize} onChange={(v: number) => setSettings({...settings, fontSize: v})} unit="px" />
              <Slider label="الموضع العمودي" min={10} max={95} step={1} value={settings.yPosition} onChange={(v: number) => setSettings({...settings, yPosition: v})} unit="%" />
@@ -107,14 +108,14 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
         )}
         
         {tab === 'color' && (
-           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
              <ColorPicker label="لون النص الأساسي" value={settings.textColor} onChange={(v: string) => setSettings({...settings, textColor: v})} />
              <ColorPicker label="لون الكلمة النشطة" value={settings.activeColor} onChange={(v: string) => setSettings({...settings, activeColor: v})} />
            </div>
         )}
         
         {tab === 'audio' && (
-           <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
              <Select label="أسلوب الدعاء" value={settings.duaaStyle} onChange={(v: string) => setSettings({...settings, duaaStyle: v})} options={[
                {label: "تضرع وخشوع", value: "تضرع وخشوع"},
                {label: "شكر وحمد", value: "شكر وحمد"},
@@ -122,15 +123,15 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                {label: "رجاء وأمل", value: "رجاء وأمل"},
                {label: "توكل وثقة", value: "توكل وثقة"}
              ]} />
-             <div className="pt-4 border-t border-border/50">
+             <div className="pt-3 border-t border-border/50">
                <Switch label="تخفيض سرعة القراءة (لزيادة الوضوح)" checked={settings.ttsSpeed} onChange={(v: boolean) => setSettings({...settings, ttsSpeed: v})} />
              </div>
            </div>
         )}
       </div>
 
-      <PremiumButton onClick={onSave} isLoading={isSaving} className="w-full mt-10">
-        <Save className="w-5 h-5" />
+      <PremiumButton onClick={onSave} isLoading={isSaving} className="w-full mt-6">
+        <Save className="w-4 h-4" />
         حفظ الإعدادات
       </PremiumButton>
     </PremiumCard>
@@ -449,8 +450,8 @@ export function Dashboard() {
       </div>
       
       <div className="lg:col-span-7 flex flex-col gap-8 lg:gap-10 h-full">
-        <StatusCard status={status} />
         <PreviewCard settings={settings} />
+        <StatusCard status={status} />
         <LogsCard logs={status?.logs || []} />
       </div>
     </div>

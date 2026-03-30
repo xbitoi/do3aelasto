@@ -822,7 +822,30 @@ function getFontPath(fontName: string): string {
   return "";
 }
 
-let currentSettings: AppSettings = { ...defaultSettings };
+const SETTINGS_FILE = path.join(process.cwd(), "settings.json");
+
+function loadSettingsFromDisk(): AppSettings {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const raw = fs.readFileSync(SETTINGS_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      return { ...defaultSettings, ...parsed };
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return { ...defaultSettings };
+}
+
+function saveSettingsToDisk(s: AppSettings) {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), "utf8");
+  } catch (err) {
+    logger.warn({ err }, "Failed to save settings to disk");
+  }
+}
+
+let currentSettings: AppSettings = loadSettingsFromDisk();
 
 export function getSettings() {
   return currentSettings;
@@ -830,5 +853,6 @@ export function getSettings() {
 
 export function updateSettings(settings: Partial<AppSettings>) {
   currentSettings = { ...currentSettings, ...settings };
+  saveSettingsToDisk(currentSettings);
   return currentSettings;
 }

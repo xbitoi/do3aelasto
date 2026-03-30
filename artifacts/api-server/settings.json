@@ -1,0 +1,14 @@
+{
+  "font": "BeIn",
+  "fontSize": 60,
+  "yPosition": 80,
+  "lineHeight": 1.4,
+  "strokeThickness": 3,
+  "textColor": "#FFFFFF",
+  "activeColor": "#3B82F6",
+  "ttsSpeed": false,
+  "duaaStyle": "تضرع وخشوع",
+  "videoQuality": "fast",
+  "bgOpacity": 40,
+  "showBackground": true
+}

@@ -1,0 +1,14 @@
+{
+  "font": "Dima",
+  "fontSize": 131,
+  "yPosition": 81,
+  "lineHeight": 1.1,
+  "strokeThickness": 0,
+  "textColor": "#FFFFFF",
+  "activeColor": "#ffff00",
+  "ttsSpeed": false,
+  "duaaStyle": "شكر وحمد",
+  "videoQuality": "fast",
+  "bgOpacity": 40,
+  "showBackground": true
+}

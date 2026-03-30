@@ -7,10 +7,12 @@
   "textColor": "#00ffff",
   "activeColor": "#ffff00",
   "ttsSpeed": true,
-  "ttsVoice": "ar-SA-HamedNeural",
+  "ttsVoice": "ar-EG-ShakirNeural",
   "duaaStyle": "تضرع وخشوع",
   "videoQuality": "fast",
   "bgOpacity": 40,
   "showBackground": true,
-  "geminiModel": "gemma-3-27b-it"
+  "geminiModel": "gemma-3-27b-it",
+  "originalVolume": 40,
+  "duaaVolume": 145
 }

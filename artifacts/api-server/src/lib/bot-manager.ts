@@ -517,23 +517,23 @@ async function generateTTS(text: string, outputPath: string, slow: boolean, vide
   if (voice && voice !== "gtts") {
     addLog(`🎙️ توليد الصوت بـ Edge TTS: ${voice}`, "processing");
     const txtFile = rawPath + ".txt";
+    const pyFile = rawPath + ".py";
     fs.writeFileSync(txtFile, text, "utf8");
+    fs.writeFileSync(pyFile, [
+      "import asyncio, edge_tts",
+      "async def run():",
+      `    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:`,
+      "        txt = f.read()",
+      `    rate = ${slow ? "'-10%'" : "'+0%'"}`,
+      `    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)`,
+      `    await com.save(${JSON.stringify(rawPath)})`,
+      "asyncio.run(run())",
+    ].join("\n"), "utf8");
     try {
-      await execAsync(
-        `python3 -c "
-import asyncio, edge_tts, sys
-async def run():
-    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:
-        txt = f.read()
-    rate = '-10%' if ${slow ? "True" : "False"} else '+0%'
-    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)
-    await com.save(${JSON.stringify(rawPath)})
-asyncio.run(run())
-"`,
-        { timeout: 60000 }
-      );
+      await execAsync(`python3 ${JSON.stringify(pyFile)}`, { timeout: 60000 });
     } finally {
       try { fs.unlinkSync(txtFile); } catch {}
+      try { fs.unlinkSync(pyFile); } catch {}
     }
   } else {
     // gTTS fallback
@@ -1065,24 +1065,24 @@ export async function generateTTSPreview(voice: string, slow: boolean): Promise<
   const tmpPath = path.join(os.tmpdir(), `tts-preview-${Date.now()}.mp3`);
   const rawPath = tmpPath.replace(".mp3", "_raw.mp3");
   const txtFile = rawPath + ".txt";
+  const pyFile = rawPath + ".py";
   fs.writeFileSync(txtFile, sampleText, "utf8");
+  fs.writeFileSync(pyFile, [
+    "import asyncio, edge_tts",
+    "async def run():",
+    `    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:`,
+    "        txt = f.read()",
+    `    rate = ${slow ? "'-10%'" : "'+0%'"}`,
+    `    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)`,
+    `    await com.save(${JSON.stringify(rawPath)})`,
+    "asyncio.run(run())",
+  ].join("\n"), "utf8");
   try {
-    await execAsync(
-      `python3 -c "
-import asyncio, edge_tts
-async def run():
-    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:
-        txt = f.read()
-    rate = '-10%' if ${slow ? "True" : "False"} else '+0%'
-    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)
-    await com.save(${JSON.stringify(rawPath)})
-asyncio.run(run())
-"`,
-      { timeout: 30000 }
-    );
+    await execAsync(`python3 ${JSON.stringify(pyFile)}`, { timeout: 30000 });
     fs.renameSync(rawPath, tmpPath);
   } finally {
     try { fs.unlinkSync(txtFile); } catch {}
+    try { fs.unlinkSync(pyFile); } catch {}
     try { fs.unlinkSync(rawPath); } catch {}
   }
   return tmpPath;

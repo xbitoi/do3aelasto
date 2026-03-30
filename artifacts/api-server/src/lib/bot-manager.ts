@@ -1616,9 +1616,12 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
     "qwen-qwq-32b",
   ];
 
+  const opening = pickRandomOpening();
+  addLog(`🎲 Groq — البداية: ${opening.label}`, "info");
   const groqPrompt = `اكتب دعاءً إسلامياً بالعربية الفصحى مع التشكيل الكامل على جميع الحروف.
 موضوع الدعاء: ${randomTheme}
 عدد الكلمات: بين ${minWords} و${_maxWords} كلمة تماماً
+شرط إضافي: يجب أن يبدأ الدعاء بالعبارة «${opening.text}» مباشرةً.
 القاعدة الصارمة: اكتب فقط نص الدعاء العربي المشكّل، لا مقدمة ولا شرح ولا ترجمة.`;
 
   let bestText = "";
@@ -1666,6 +1669,29 @@ function hasTashkeel(text: string): boolean {
   return arabicLetters > 0 && diacritics / arabicLetters >= 0.5;
 }
 
+// ── Random duaa opening phrases ───────────────────────────────────────────
+const DUAA_OPENINGS = [
+  { text: "اللَّهُمَّ",          label: "اللهم" },
+  { text: "رَبِّي",              label: "ربي" },
+  { text: "يَا رَبِّ",           label: "يارب" },
+  { text: "يَا رَحِيمُ",         label: "يارحيم" },
+  { text: "يَا غَفُورُ",         label: "ياغفور" },
+  { text: "سُبْحَانَكَ رَبِّي",  label: "سبحانك ربي" },
+  { text: "يَا حَيُّ يَا قَيُّومُ", label: "ياحي ياقيوم" },
+  { text: "يَا كَرِيمُ",         label: "ياكريم" },
+  { text: "يَا تَوَّابُ",        label: "ياتواب" },
+  { text: "يَا أَرْحَمَ الرَّاحِمِينَ", label: "يا أرحم الراحمين" },
+  { text: "رَبَّنَا",            label: "ربنا" },
+  { text: "يَا لَطِيفُ",         label: "يالطيف" },
+  { text: "يَا عَفُوُّ",         label: "ياعفو" },
+  { text: "يَا رَزَّاقُ",        label: "يارزاق" },
+  { text: "يَا مُجِيبَ الدُّعَاءِ", label: "يا مجيب الدعاء" },
+];
+
+function pickRandomOpening() {
+  return DUAA_OPENINGS[Math.floor(Math.random() * DUAA_OPENINGS.length)];
+}
+
 async function generateDuaa(geminiKey: string, videoDuration: number, _style: string, groqKey = "", selectedModel = "auto"): Promise<string> {
   const minWords = 15;
   const maxWords = 20;
@@ -1684,16 +1710,18 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
     "طلب الثبات على الدين",
   ];
   const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-  addLog(`🎲 الأسلوب العشوائي: ${randomTheme}`, "info");
+  const opening = pickRandomOpening();
+  addLog(`🎲 الأسلوب: ${randomTheme} | البداية: ${opening.label}`, "info");
 
   const prompt = `اكتب دعاءً إسلامياً بالعربية الفصحى موضوعه: ${randomTheme}.
 شروط صارمة جداً:
 ١- يجب أن يكون كل حرف في الدعاء مُشَكَّلاً تشكيلاً كاملاً (فتحة أو كسرة أو ضمة أو سكون أو تنوين أو شدة) بدون استثناء.
 ٢- عدد الكلمات: بين خمس عشرة وعشرين كلمة فقط.
-٣- اكتب نص الدعاء المُشَكَّل فقط — لا مقدمة ولا شرح.
+٣- يجب أن يبدأ الدعاء بالكلمة أو العبارة: «${opening.text}» — ابدأ بها مباشرةً دون أي مقدمة.
+٤- اكتب نص الدعاء المُشَكَّل فقط — لا مقدمة ولا شرح.
 مثال على التشكيل الكامل المطلوب:
 "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً"
-الدعاء المُشَكَّل:`;
+الدعاء المُشَكَّل (يبدأ بـ ${opening.text}):`;
 
   const fallbackChain = [
     "gemini-2.5-flash-preview-04-17",

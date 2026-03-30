@@ -1,14 +1,15 @@
 {
-  "font": "BeIn",
-  "fontSize": 84,
-  "yPosition": 85,
-  "lineHeight": 1.4,
-  "strokeThickness": 0,
-  "textColor": "#FFFFFF",
+  "font": "Boutros",
+  "fontSize": 86,
+  "yPosition": 78,
+  "lineHeight": 1,
+  "strokeThickness": 2,
+  "textColor": "#ffff00",
   "activeColor": "#3B82F6",
-  "ttsSpeed": false,
-  "duaaStyle": "تضرع وخشوع",
+  "ttsSpeed": true,
+  "duaaStyle": "استغفار",
   "videoQuality": "fast",
   "bgOpacity": 40,
-  "showBackground": true
+  "showBackground": true,
+  "geminiModel": "gemma-3-27b-it"
 }

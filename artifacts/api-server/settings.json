@@ -7,6 +7,7 @@
   "textColor": "#00ffff",
   "activeColor": "#ffff00",
   "ttsSpeed": true,
+  "ttsVoice": "ar-SA-HamedNeural",
   "duaaStyle": "تضرع وخشوع",
   "videoQuality": "fast",
   "bgOpacity": 40,

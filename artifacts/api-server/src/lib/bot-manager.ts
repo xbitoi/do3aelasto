@@ -390,6 +390,13 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
   throw lastErr || new Error("فشلت جميع نماذج Groq");
 }
 
+/** Check if text has sufficient Arabic tashkeel (diacritics) */
+function hasTashkeel(text: string): boolean {
+  const arabicLetters = (text.match(/[\u0621-\u063A\u0641-\u064A]/g) || []).length;
+  const diacritics = (text.match(/[\u064B-\u065F]/g) || []).length;
+  return arabicLetters > 0 && diacritics / arabicLetters >= 0.5;
+}
+
 async function generateDuaa(geminiKey: string, videoDuration: number, _style: string, groqKey = "", selectedModel = "auto"): Promise<string> {
   const minWords = 15;
   const maxWords = 20;
@@ -411,11 +418,15 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   const randomTheme = themes[Math.floor(Math.random() * themes.length)];
   addLog(`🎲 الأسلوب العشوائي: ${randomTheme}`, "info");
 
-  // Explicit prompt with word count examples
-  const prompt = `اكتب دعاءً إسلامياً مشكّلاً تشكيلاً كاملاً بالعربية الفصحى، موضوعه: ${randomTheme}.
-يجب أن يحتوي الدعاء على خمس عشرة كلمة على الأقل وعشرين كلمة كحد أقصى.
-مثال على الطول المطلوب: "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً"
-اكتب الدعاء فقط بدون أي مقدمة:`;
+  // Strict tashkeel prompt — every single letter must carry its diacritic mark
+  const prompt = `اكتب دعاءً إسلامياً بالعربية الفصحى موضوعه: ${randomTheme}.
+شروط صارمة جداً:
+١- يجب أن يكون كل حرف في الدعاء مُشَكَّلاً تشكيلاً كاملاً (فتحة أو كسرة أو ضمة أو سكون أو تنوين أو شدة) بدون استثناء.
+٢- عدد الكلمات: بين خمس عشرة وعشرين كلمة فقط.
+٣- اكتب نص الدعاء المُشَكَّل فقط — لا مقدمة ولا شرح.
+مثال على التشكيل الكامل المطلوب:
+"اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً"
+الدعاء المُشَكَّل:`;
 
   // Determine which models to try — use selected model first, then fallback chain
   const fallbackChain = [
@@ -456,7 +467,12 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
       addLog(`📊 ${modelName}: ${wordCount} كلمة`, "info");
 
       if (wordCount >= minWords) {
-        addLog(`✅ نجح: ${modelName}`, "success");
+        if (!hasTashkeel(text)) {
+          addLog(`⚠️ ${modelName}: ناجح (${wordCount} كلمة) لكن التشكيل ناقص، إعادة المحاولة...`, "warning");
+          if (wordCount > bestGeminiCount) { bestGeminiText = text; bestGeminiCount = wordCount; }
+          continue;
+        }
+        addLog(`✅ نجح: ${modelName} — ${wordCount} كلمة مشكّلة`, "success");
         return text;
       }
       if (wordCount > bestGeminiCount) { bestGeminiText = text; bestGeminiCount = wordCount; }
@@ -579,8 +595,9 @@ function estimateWordTimings(words: string[], audioDuration: number): { start: n
 }
 
 /**
- * Generate animated text overlay frames (one PNG per word-active state).
- * Returns list of {pngPath, start, end} for ffmpeg overlay chain.
+ * Generate animated text overlay frames with evaporation effect.
+ * Returns a ffmpeg concat-list file path. Each PNG frame has a specific duration.
+ * Spoken words evaporate (fade + drift up) as the next word is spoken.
  */
 async function generateAnimatedTextFrames(params: {
   words: string[];
@@ -594,15 +611,15 @@ async function generateAnimatedTextFrames(params: {
   activeColor: string;  // hex "RRGGBB"
   totalDuration: number;
   outputDir: string;
-}): Promise<Array<{ pngPath: string; start: number; end: number }>> {
+}): Promise<string> {  // returns concat-list path
   const scriptPath = path.join(os.tmpdir(), `anim_arabic_${Date.now()}.py`);
   const paramsPath = path.join(os.tmpdir(), `anim_params_${Date.now()}.json`);
-  const resultPath = path.join(os.tmpdir(), `anim_result_${Date.now()}.json`);
+  const concatListPath = path.join(params.outputDir, "frames.txt");
 
   fs.writeFileSync(paramsPath, JSON.stringify(params), "utf8");
 
   const script = `
-import json, sys, os
+import json, sys, os, math
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -621,6 +638,7 @@ word_timings = p['wordTimings']
 total_duration = p['totalDuration']
 active_hex = p['activeColor']
 font_path = p['fontPath']
+concat_list_path = os.path.join(output_dir, 'frames.txt')
 
 def hex_to_rgb(h):
     return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
@@ -629,15 +647,17 @@ ACTIVE_RGB = hex_to_rgb(active_hex)
 
 # Harmonious color palette for spoken words
 PALETTE = [
-    (255, 215,   0),   # Gold
-    (255, 143, 171),   # Rose
-    (116, 192, 252),   # Sky Blue
-    (105, 219, 124),   # Mint
-    (255, 179,  71),   # Peach
-    (192, 132, 252),   # Lavender
-     (34, 211, 238),   # Aqua
-    (251, 146,  60),   # Coral
+    (255, 215,   0),  # Gold
+    (255, 143, 171),  # Rose
+    (116, 192, 252),  # Sky Blue
+    (105, 219, 124),  # Mint
+    (255, 179,  71),  # Peach
+    (192, 132, 252),  # Lavender
+    ( 34, 211, 238),  # Aqua
+    (251, 146,  60),  # Coral
 ]
+EVAP_STEPS = 7        # sub-frames for evaporation animation
+EVAP_Y_DRIFT = 22     # pixels word drifts upward while evaporating
 
 # Load font
 font = None
@@ -660,7 +680,7 @@ if font is None:
 dummy_img = Image.new('RGBA', (W, H), (0,0,0,0))
 dummy_draw = ImageDraw.Draw(dummy_img)
 
-# Word-wrap into lines (90% width)
+# Word-wrap into lines (88% width)
 lines = []
 current_line = []
 for word in words:
@@ -675,7 +695,6 @@ for word in words:
 if current_line:
     lines.append(current_line[:])
 
-# Line start indices in words[]
 line_start_indices = []
 idx = 0
 for line in lines:
@@ -688,109 +707,144 @@ def get_line_idx(word_idx):
             return i
     return len(lines) - 1
 
-def word_display_width(word):
-    reshaped = get_display(arabic_reshaper.reshape(word))
-    bbox = dummy_draw.textbbox((0,0), reshaped, font=font)
-    return bbox[2] - bbox[0]
+def word_w(word):
+    r = get_display(arabic_reshaper.reshape(word))
+    b = dummy_draw.textbbox((0,0), r, font=font)
+    return b[2] - b[0]
 
-def word_display_height(word):
-    reshaped = get_display(arabic_reshaper.reshape(word))
-    bbox = dummy_draw.textbbox((0,0), reshaped, font=font)
-    return bbox[3] - bbox[1]
+def word_h(word):
+    r = get_display(arabic_reshaper.reshape(word))
+    b = dummy_draw.textbbox((0,0), r, font=font)
+    return b[3] - b[1]
 
-LINE_H = max(word_display_height(w) for w in words) if words else font_size
+LINE_H = max(word_h(w) for w in words) if words else font_size
 LINE_SPACING = int(font_size * 0.4)
 WORD_GAP = int(font_size * 0.12)
 
-def draw_word(draw, word, x, y, rgb, opacity, stroke_w):
-    reshaped = get_display(arabic_reshaper.reshape(word))
-    a = int(opacity)
-    shadow_a = int(180 * opacity / 255)
-    stroke_a = int(220 * opacity / 255)
-    draw.text((x+2, y+2), reshaped, font=font, fill=(0,0,0,shadow_a))
+# Assign palette colors upfront
+word_colors = {}
+for i in range(len(words)):
+    word_colors[i] = PALETTE[i % len(PALETTE)]
+
+def draw_word_at(draw, word, x, y, rgb, opacity, stroke_w):
+    if opacity <= 0: return
+    opacity = max(0, min(255, int(opacity)))
+    r = get_display(arabic_reshaper.reshape(word))
+    shadow_a = int(160 * opacity / 255)
+    stroke_a = int(210 * opacity / 255)
+    draw.text((x+2, y+2), r, font=font, fill=(0,0,0,shadow_a))
     if stroke_w > 0:
         for dx in range(-stroke_w, stroke_w+1):
             for dy in range(-stroke_w, stroke_w+1):
                 if abs(dx)+abs(dy) <= stroke_w:
-                    draw.text((x+dx, y+dy), reshaped, font=font, fill=(0,0,0,stroke_a))
-    draw.text((x, y), reshaped, font=font, fill=(rgb[0],rgb[1],rgb[2],a))
+                    draw.text((x+dx, y+dy), r, font=font, fill=(0,0,0,stroke_a))
+    draw.text((x, y), r, font=font, fill=(rgb[0], rgb[1], rgb[2], opacity))
 
-def render_line(draw, line_words, line_start, active_idx, word_colors, y_top, base_opacity=255):
-    widths = [word_display_width(w) for w in line_words]
-    total_w = sum(widths) + WORD_GAP * max(0, len(line_words)-1)
-    # RTL: word[0] is rightmost — place from right to left
-    x = (W + total_w) // 2
-    for i, word in enumerate(line_words):
-        g_idx = line_start + i
-        ww = widths[i]
-        x -= ww
-        if g_idx == active_idx:
-            rgb = ACTIVE_RGB
-            op = base_opacity
-        elif g_idx < active_idx and g_idx in word_colors:
-            rgb = word_colors[g_idx]
-            op = base_opacity
-        else:
-            rgb = (255, 255, 255)
-            op = int(base_opacity * 0.75)
-        draw_word(draw, word, x, y_top, rgb, op, stroke)
-        x -= WORD_GAP
-
-def render_frame(active_word_idx, word_colors):
+def render_frame(active_idx, evap_word_idx, evap_phase):
+    """
+    active_idx: word index being spoken now (-1 = before any word)
+    evap_word_idx: word index currently evaporating (-1 = none)
+    evap_phase: 0.0 = just started evaporating, 1.0 = fully gone
+    """
     img = Image.new('RGBA', (W, H), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-    cur_line = get_line_idx(max(0, active_word_idx)) if active_word_idx >= 0 else 0
+    cur_line = get_line_idx(max(0, active_idx)) if active_idx >= 0 else 0
     y_center = int(H * y_ratio)
 
-    # Determine how many lines to show (current + prev)
-    show = []
+    lines_to_show = []
     if cur_line > 0:
-        show.append((cur_line - 1, y_center - LINE_H - LINE_SPACING, 120))
-    show.append((cur_line, y_center - LINE_H // 2, 255))
+        lines_to_show.append((cur_line - 1, y_center - LINE_H - LINE_SPACING, 100))
+    lines_to_show.append((cur_line, y_center - LINE_H // 2, 255))
 
-    for li, y_top, opacity in show:
-        render_line(draw, lines[li], line_start_indices[li], active_word_idx, word_colors, y_top, opacity)
+    for li, y_top, base_op in lines_to_show:
+        lw_list = lines[li]
+        ls = line_start_indices[li]
+        widths = [word_w(w) for w in lw_list]
+        total_w = sum(widths) + WORD_GAP * max(0, len(lw_list) - 1)
+        x = (W + total_w) // 2  # RTL: start from right
+
+        for i, word in enumerate(lw_list):
+            g_idx = ls + i
+            ww = widths[i]
+            x -= ww
+
+            if g_idx == evap_word_idx and evap_phase > 0:
+                # Evaporating word: fade + drift up
+                op = int(base_op * (1.0 - evap_phase))
+                y_draw = y_top - int(evap_phase * EVAP_Y_DRIFT)
+                rgb = word_colors[g_idx]
+                draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
+            elif g_idx == active_idx:
+                # Currently spoken: bright highlight
+                draw_word_at(draw, word, x, y_top, ACTIVE_RGB, base_op, stroke)
+            elif g_idx < active_idx and g_idx != evap_word_idx:
+                # Previously spoken & fully evaporated — invisible
+                pass
+            else:
+                # Upcoming word: white, slightly dim
+                draw_word_at(draw, word, x, y_top, (255,255,255), int(base_op * 0.70), stroke)
+            x -= WORD_GAP
+
     return img
 
 os.makedirs(output_dir, exist_ok=True)
-frames = []
-word_colors = {}
-palette_idx = 0
+frame_entries = []  # list of (path, duration)
+frame_idx = [0]
 
-# Pre-first-word frame
-img = render_frame(-1, {})
-pre_path = os.path.join(output_dir, 'frame_pre.png')
-img.save(pre_path)
-pre_end = word_timings[0]['start'] if word_timings else total_duration
-if pre_end > 0:
-    frames.append({'pngPath': pre_path, 'start': 0.0, 'end': pre_end})
+def save_frame(img, tag):
+    p = os.path.join(output_dir, f'f_{frame_idx[0]:05d}_{tag}.png')
+    img.save(p)
+    frame_idx[0] += 1
+    return p
 
-# One frame per word
+# === Build the frame sequence ===
+
+# Pre-word frame (before first word)
+if word_timings:
+    pre_dur = max(0.05, word_timings[0]['start'])
+    img = render_frame(-1, -1, 0.0)
+    p = save_frame(img, 'pre')
+    frame_entries.append((p, pre_dur))
+
 for i in range(len(words)):
-    word_colors[i] = PALETTE[palette_idx % len(PALETTE)]
-    palette_idx += 1
-    img = render_frame(i, word_colors)
-    fp = os.path.join(output_dir, f'frame_{i:04d}.png')
-    img.save(fp)
-    start_t = word_timings[i]['start']
-    end_t = word_timings[i+1]['start'] if i+1 < len(words) else total_duration
-    end_t = max(end_t, start_t + 0.05)
-    frames.append({'pngPath': fp, 'start': start_t, 'end': end_t})
+    timing = word_timings[i]
+    next_start = word_timings[i+1]['start'] if i+1 < len(words) else total_duration
+    word_dur = max(0.05, next_start - timing['start'])
 
-with open(${JSON.stringify(resultPath)}, 'w', encoding='utf-8') as f:
-    json.dump(frames, f)
+    if i == 0:
+        # First word: no evaporation, just active
+        img = render_frame(i, -1, 0.0)
+        p = save_frame(img, f'w{i}')
+        frame_entries.append((p, word_dur))
+    else:
+        # Split word duration into evaporation sub-frames
+        sub_dur = word_dur / EVAP_STEPS
+        for step in range(EVAP_STEPS):
+            phase = step / (EVAP_STEPS - 1)  # 0.0 to 1.0
+            img = render_frame(i, i-1, phase)
+            p = save_frame(img, f'w{i}_ev{step}')
+            frame_entries.append((p, sub_dur))
+
+# Write ffmpeg concat list
+with open(concat_list_path, 'w', encoding='utf-8') as f:
+    for path_str, dur in frame_entries:
+        f.write(f"file '{path_str}'\\n")
+        f.write(f"duration {dur:.4f}\\n")
+    # Repeat last frame once to avoid ffmpeg duration issues
+    if frame_entries:
+        f.write(f"file '{frame_entries[-1][0]}'\\n")
+
 print("done")
 `;
 
   fs.writeFileSync(scriptPath, script, "utf8");
   try {
-    await execAsync(`python3 "${scriptPath}"`, { timeout: 60000 });
-    const raw = fs.readFileSync(resultPath, "utf8");
-    return JSON.parse(raw) as Array<{ pngPath: string; start: number; end: number }>;
+    fs.mkdirSync(params.outputDir, { recursive: true });
+    await execAsync(`python3 "${scriptPath}"`, { timeout: 120000 });
+    return concatListPath;
   } finally {
     try { fs.unlinkSync(scriptPath); } catch {}
     try { fs.unlinkSync(paramsPath); } catch {}
-    try { fs.unlinkSync(resultPath); } catch {}
   }
 }
 
@@ -821,10 +875,10 @@ async function processVideoWithText(
   const wordTimings = estimateWordTimings(words, Math.min(audioDuration, videoDuration));
   addLog(`📝 عدد الكلمات: ${words.length} | الصوت: ${audioDuration.toFixed(1)}ث`, "info");
 
-  // 3. Generate animated PNG frames (one per word state)
+  // 3. Generate animated overlay frames (with evaporation effect)
   const framesDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-frames-"));
-  addLog(`🎨 توليد إطارات النص المتحرك...`, "processing");
-  const frames = await generateAnimatedTextFrames({
+  addLog(`🎨 توليد إطارات النص المتحرك بتأثير التبخر...`, "processing");
+  const concatListPath = await generateAnimatedTextFrames({
     words,
     wordTimings,
     videoWidth: videoW,
@@ -837,7 +891,7 @@ async function processVideoWithText(
     totalDuration: videoDuration,
     outputDir: framesDir,
   });
-  addLog(`✅ تم توليد ${frames.length} إطار نصي`, "success");
+  addLog(`✅ تم توليد إطارات التبخر بنجاح`, "success");
 
   // 4. Check if video has audio
   let hasAudio = false;
@@ -848,51 +902,35 @@ async function processVideoWithText(
     hasAudio = stdout.trim().length > 0;
   } catch {}
 
-  // 5. Build ffmpeg command with animated overlay chain
-  //    Inputs: 0=video, 1=tts audio, 2..N+1=PNG frames
-  //    Each PNG is overlaid for its time window using enable='between(t,start,end)'
-  const inputArgs: string[] = [
-    `-i "${videoPath}"`,
-    `-i "${audioPath}"`,
-    ...frames.map((f) => `-i "${f.pngPath}"`),
-  ];
-
-  // Build video filter chain: chain overlay for each frame
-  const videoFilters: string[] = [];
-  let prevLabel = "0:v";
-  for (let i = 0; i < frames.length; i++) {
-    const inputIdx = i + 2;  // inputs 2..N+1 are the PNGs
-    const outLabel = i === frames.length - 1 ? "vout" : `v${i}`;
-    const { start, end } = frames[i];
-    videoFilters.push(
-      `[${prevLabel}][${inputIdx}:v]overlay=0:0:enable='between(t,${start.toFixed(3)},${end.toFixed(3)})'[${outLabel}]`
-    );
-    prevLabel = outLabel;
-  }
-
-  // If no frames somehow, pass through
-  if (frames.length === 0) {
-    videoFilters.push(`[0:v]copy[vout]`);
-  }
-
-  // Audio filters
+  // 5. Build ffmpeg command
+  //    Input 0: original video
+  //    Input 1: TTS audio
+  //    Input 2: overlay animation (from concat list of PNGs)
+  //    The concat-list input has alpha transparency; overlay filter handles it automatically.
+  let filterComplex: string;
   let audioMap: string;
-  const audioFilters: string[] = [];
+
   if (hasAudio) {
-    audioFilters.push(`[1:a]apad=whole_dur=${videoDuration}[tts_full]`);
-    audioFilters.push(`[0:a]volume=0.5[orig_vol]`);
-    audioFilters.push(`[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+    filterComplex = [
+      `[0:v][2:v]overlay=0:0:format=auto[vout]`,
+      `[1:a]apad=whole_dur=${videoDuration}[tts_full]`,
+      `[0:a]volume=0.5[orig_vol]`,
+      `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
+    ].join(";");
     audioMap = `[aout]`;
   } else {
-    audioFilters.push(`[1:a]apad=whole_dur=${videoDuration}[aout]`);
+    filterComplex = [
+      `[0:v][2:v]overlay=0:0:format=auto[vout]`,
+      `[1:a]apad=whole_dur=${videoDuration}[aout]`,
+    ].join(";");
     audioMap = `[aout]`;
   }
-
-  const filterComplex = [...videoFilters, ...audioFilters].join(";");
 
   const cmd = [
     "ffmpeg",
-    ...inputArgs,
+    `-i "${videoPath}"`,
+    `-i "${audioPath}"`,
+    `-f concat -safe 0 -i "${concatListPath}"`,
     `-filter_complex "${filterComplex}"`,
     `-map "[vout]"`,
     `-map "${audioMap}"`,
@@ -907,7 +945,6 @@ async function processVideoWithText(
   try {
     await execAsync(cmd, { timeout: 300000 });
   } finally {
-    // Clean up frames directory
     try { fs.rmSync(framesDir, { recursive: true, force: true }); } catch {}
   }
 }

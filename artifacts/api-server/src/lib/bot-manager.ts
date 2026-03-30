@@ -318,10 +318,10 @@ async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
 }
 
 async function generateDuaa(geminiKey: string, videoDuration: number, style: string): Promise<string> {
-  // Determine word count based on video duration
-  // ~2 seconds per word in Arabic TTS
-  const maxWords = Math.min(30, Math.max(10, Math.floor(videoDuration / 2)));
-  const minWords = Math.max(8, maxWords - 4);
+  // Arabic TTS with tashkeel reads ~1.5 words/second
+  // Minimum 15 words, scale up with duration
+  const minWords = 15;
+  const maxWords = Math.min(50, Math.max(20, Math.floor(videoDuration * 1.8)));
   addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
   const genAI = new GoogleGenerativeAI(geminiKey);
 
@@ -335,16 +335,20 @@ async function generateDuaa(geminiKey: string, videoDuration: number, style: str
 
   const styleDesc = styleMap[style] || styleMap["تضرع وخشوع"];
 
-  const prompt = `اكتب دعاءً إسلامياً باللغة العربية الفصحى مع التشكيل الكامل.
+  const prompt = `أنت خطاط إسلامي متخصص في كتابة الأدعية القرآنية المأثورة.
 
-المتطلبات الصارمة:
-- عدد الكلمات: من ${minWords} إلى ${maxWords} كلمة بالضبط
-- يجب أن يكون ${styleDesc}
-- اكتب التشكيل الكامل (فتحة، ضمة، كسرة، شدة، تنوين) على كل حرف
-- استخدم كلمات قرآنية ومأثورة
-- لا تضع أي شرح أو ترجمة أو علامات ترقيم، فقط الدعاء مباشرة
+اكتب دعاءً إسلامياً طويلاً باللغة العربية الفصحى مع التشكيل الكامل على كل حرف.
 
-اكتب الدعاء الآن:`;
+الشروط الإلزامية:
+- عدد الكلمات: من ${minWords} إلى ${maxWords} كلمة
+- الأسلوب: ${styleDesc}
+- التشكيل: ضع الفتحة والضمة والكسرة والشدة والتنوين على كل كلمة بدقة تامة
+- اللغة: عربية فصحى راقية بأسلوب قرآني مأثور
+- الصياغة: جمل متصلة سلسة تبدأ بـ "اللَّهُمَّ" أو "رَبَّنَا" أو "يَا رَبِّ"
+- المحتوى: دعاء متنوع يشمل الدنيا والآخرة وصحة وذرية ومغفرة وهداية
+- الممنوعات: لا شرح، لا ترجمة، لا أقواس، لا أرقام، لا نقاط، فقط نص الدعاء
+
+اكتب الدعاء الآن مباشرةً بدون أي مقدمة:`;
 
   // Fetch models available for this key, then try each until one succeeds
   const models = await getAvailableGeminiModels(geminiKey);
@@ -357,12 +361,19 @@ async function generateDuaa(geminiKey: string, videoDuration: number, style: str
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.8, maxOutputTokens: 200 },
+        generationConfig: { temperature: 0.9, maxOutputTokens: 600 },
       });
 
       let text = result.response.text().trim();
-      const lines = text.split("\n").filter((l) => l.trim());
-      text = lines[0].trim();
+      // Remove any intro lines (lines that don't start with Arabic dua patterns)
+      const allLines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+      // Join all lines into one continuous dua
+      text = allLines.join(" ").trim();
+      // Remove any quotes or decorative chars that might appear
+      text = text.replace(/^["'«»]+|["'«»]+$/g, "").trim();
+
+      const wordCount = text.split(/\s+/).length;
+      addLog(`📊 عدد الكلمات في الدعاء: ${wordCount}`, "info");
       addLog(`✅ نجح النموذج: ${modelName}`, "success");
       return text;
     } catch (err: unknown) {

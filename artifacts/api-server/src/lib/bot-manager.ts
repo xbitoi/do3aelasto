@@ -1168,37 +1168,45 @@ async function concatVideosWithTransition(videoPaths: string[], outputPath: stri
 
   const inputs = videoPaths.map(p => `-i "${p}"`).join(" ");
 
-  // Build xfade video filter chain
-  // [0:v][1:v]xfade=transition=fade:duration=0.5:offset=D0-0.5[v01];
-  // [v01][2:v]xfade=transition=fade:duration=0.5:offset=D0+D1-1.0[v012];
-  // ...
   const transition = pickTransition(transitionEffect);
-  addLog(`🎞️ تأثير الانتقال: ${transition}`, "info");
+  addLog(`🎞️ تأثير الانتقال: ${transition} | المدة: ${TRANS_DUR}ث`, "info");
 
+  // Pre-normalize each input stream to ensure consistent fps/format before xfade
+  let preFilter = "";
+  for (let i = 0; i < n; i++) {
+    preFilter += `[${i}:v]fps=30,format=yuv420p[vn${i}];`;
+    preFilter += `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[an${i}];`;
+  }
+
+  // Build xfade video filter chain using pre-normalized streams
+  // [vn0][vn1]xfade=transition=fade:duration=0.5:offset=D0-0.5[vtmp1];
+  // [vtmp1][vn2]xfade=transition=fade:duration=0.5:offset=D0+D1-1.0[vout];
   let videoFilter = "";
   let audioFilter = "";
   let cumulativeDur = durations[0];
-  let prevVideoLabel = "0:v";
-  let prevAudioLabel = "0:a";
+  let prevVideoLabel = "vn0";
+  let prevAudioLabel = "an0";
 
   for (let i = 1; i < n; i++) {
     const offset = Math.max(0.1, cumulativeDur - TRANS_DUR);
-    const vLabel = i < n - 1 ? `[vtmp${i}]` : "[vout]";
-    const aLabel = i < n - 1 ? `[atmp${i}]` : "[aout]";
+    const isLast = i === n - 1;
+    const vLabel = isLast ? "[vout]" : `[vtmp${i}]`;
+    const aLabel = isLast ? "[aout]" : `[atmp${i}]`;
 
-    videoFilter += `[${prevVideoLabel}][${i}:v]xfade=transition=${transition}:duration=${TRANS_DUR}:offset=${offset.toFixed(3)}${vLabel};`;
-    audioFilter += `[${prevAudioLabel}][${i}:a]acrossfade=d=${TRANS_DUR}${aLabel};`;
+    videoFilter += `[${prevVideoLabel}][vn${i}]xfade=transition=${transition}:duration=${TRANS_DUR}:offset=${offset.toFixed(3)}${vLabel};`;
+    audioFilter += `[${prevAudioLabel}][an${i}]acrossfade=d=${TRANS_DUR}${aLabel};`;
 
-    prevVideoLabel = `vtmp${i}`;
-    prevAudioLabel = `atmp${i}`;
+    prevVideoLabel = isLast ? "vout" : `vtmp${i}`;
+    prevAudioLabel = isLast ? "aout" : `atmp${i}`;
     cumulativeDur += durations[i] - TRANS_DUR;
   }
 
-  // Remove trailing semicolons
+  // Remove trailing semicolons from each chain
   videoFilter = videoFilter.replace(/;$/, "");
   audioFilter = audioFilter.replace(/;$/, "");
 
-  const filterComplex = `${videoFilter};${audioFilter}`;
+  // Combine: pre-normalization → xfade chain → acrossfade chain
+  const filterComplex = `${preFilter}${videoFilter};${audioFilter}`;
 
   const cmd = [
     "ffmpeg",
@@ -1288,6 +1296,48 @@ export async function getAvailableGeminiModels(apiKey: string): Promise<string[]
     return sorted.length > 0 ? sorted : preferredOrder;
   } catch {
     return preferredOrder;
+  }
+}
+
+export async function checkGeminiKeyStatus(apiKey: string): Promise<{
+  valid: boolean;
+  status: "valid" | "invalid" | "quota_exceeded" | "error";
+  message: string;
+  models?: string[];
+}> {
+  if (!apiKey || apiKey.trim().length === 0) {
+    return { valid: false, status: "invalid", message: "لم يتم إدخال مفتاح" };
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        models?: Array<{ name: string; supportedGenerationMethods?: string[] }>;
+      };
+      const models = (data.models ?? [])
+        .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+        .map((m) => m.name.replace("models/", ""));
+      return {
+        valid: true,
+        status: "valid",
+        message: `✅ المفتاح صالح — ${models.length} نموذج متاح`,
+        models,
+      };
+    }
+    const errData = (await res.json().catch(() => ({}))) as { error?: { code?: number; status?: string; message?: string } };
+    const errStatus = errData?.error?.status || "";
+    const errCode = res.status;
+    if (errCode === 429 || errStatus === "RESOURCE_EXHAUSTED") {
+      return { valid: false, status: "quota_exceeded", message: "⚠️ تم تجاوز حصة الطلبات اليومية" };
+    }
+    if (errCode === 400 || errCode === 401 || errStatus === "INVALID_ARGUMENT" || errStatus === "UNAUTHENTICATED") {
+      return { valid: false, status: "invalid", message: "❌ مفتاح غير صالح أو منتهي" };
+    }
+    return { valid: false, status: "error", message: `خطأ غير متوقع (${errCode})` };
+  } catch {
+    return { valid: false, status: "error", message: "تعذّر الاتصال بـ Gemini API" };
   }
 }
 

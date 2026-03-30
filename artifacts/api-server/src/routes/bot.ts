@@ -9,6 +9,7 @@ import {
   updateSettings,
   defaultSettings,
   getAvailableGeminiModels,
+  checkGeminiKeyStatus,
   generateTTSPreview,
   testYouTubeToken,
   testFacebookToken,
@@ -58,6 +59,16 @@ router.get("/gemini-models", async (req, res) => {
   }
   const models = await getAvailableGeminiModels(geminiKey);
   res.json({ models });
+});
+
+router.get("/gemini-status", async (req, res) => {
+  const geminiKey = req.query.geminiKey as string;
+  if (!geminiKey) {
+    res.status(400).json({ error: "geminiKey مطلوب" });
+    return;
+  }
+  const result = await checkGeminiKeyStatus(geminiKey);
+  res.json(result);
 });
 
 router.get("/settings", (_req, res) => {

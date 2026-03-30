@@ -86,6 +86,7 @@ export function AdvancedSettings() {
   const [groqKey, setGroqKey] = useState(localStorage.getItem("groqKey") || "");
   const [botStatus, setBotStatus] = useState<{ applying: boolean; result?: { success: boolean; message: string } }>({ applying: false });
   const [socialTests, setSocialTests] = useState<Record<string, { loading: boolean; success?: boolean; info?: string }>>({});
+  const [geminiStatus, setGeminiStatus] = useState<{ loading: boolean; valid?: boolean; status?: string; message?: string; models?: string[] } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botRestartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -101,9 +102,21 @@ export function AdvancedSettings() {
     }, 1200);
   };
 
+  const checkGeminiStatus = async (key: string) => {
+    if (!key) return;
+    setGeminiStatus({ loading: true });
+    try {
+      const res = await fetch(`/api/gemini-status?geminiKey=${encodeURIComponent(key)}`);
+      const data = await res.json() as { valid: boolean; status: string; message: string; models?: string[] };
+      setGeminiStatus({ loading: false, valid: data.valid, status: data.status, message: data.message, models: data.models });
+    } catch {
+      setGeminiStatus({ loading: false, valid: false, status: "error", message: "تعذّر الاتصال بالخادم" });
+    }
+  };
+
   const handleBotKeyChange = (field: "botToken" | "geminiKey" | "groqKey", value: string) => {
     if (field === "botToken") { setBotToken(value); localStorage.setItem("botToken", value); }
-    if (field === "geminiKey") { setGeminiKey(value); localStorage.setItem("geminiKey", value); }
+    if (field === "geminiKey") { setGeminiKey(value); localStorage.setItem("geminiKey", value); setGeminiStatus(null); }
     if (field === "groqKey") { setGroqKey(value); localStorage.setItem("groqKey", value); }
 
     if (botRestartTimer.current) clearTimeout(botRestartTimer.current);
@@ -224,6 +237,34 @@ export function AdvancedSettings() {
                 onChange={(v) => handleBotKeyChange("geminiKey", v)}
                 hint="من Google AI Studio — مجاني لأكثر من مليون رمز يومياً"
               />
+              {/* Gemini Key Status */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => checkGeminiStatus(geminiKey)}
+                  disabled={!geminiKey || geminiStatus?.loading}
+                  className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {geminiStatus?.loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                  فحص حالة المفتاح
+                </button>
+                {geminiStatus && !geminiStatus.loading && (
+                  <span className={cn(
+                    "text-xs font-bold px-2.5 py-1 rounded-lg border",
+                    geminiStatus.valid
+                      ? "text-green-400 bg-green-500/10 border-green-500/20"
+                      : geminiStatus.status === "quota_exceeded"
+                        ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+                        : "text-red-400 bg-red-500/10 border-red-500/20"
+                  )}>
+                    {geminiStatus.message}
+                  </span>
+                )}
+              </div>
+              {geminiStatus?.valid && geminiStatus.models && geminiStatus.models.length > 0 && (
+                <div className="text-[10px] text-muted-foreground/60 bg-black/20 rounded-xl px-3 py-2 border border-border/30 leading-relaxed">
+                  📋 النماذج المتاحة: <span className="text-primary font-mono">{geminiStatus.models.slice(0, 3).join(" · ")}{geminiStatus.models.length > 3 ? ` · +${geminiStatus.models.length - 3}` : ""}</span>
+                </div>
+              )}
               <KeyInput
                 label="مفتاح Groq AI (احتياطي)"
                 placeholder="gsk_..."

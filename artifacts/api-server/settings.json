@@ -1,9 +1,9 @@
 {
   "font": "BeIn",
-  "fontSize": 60,
-  "yPosition": 80,
+  "fontSize": 84,
+  "yPosition": 85,
   "lineHeight": 1.4,
-  "strokeThickness": 3,
+  "strokeThickness": 0,
   "textColor": "#FFFFFF",
   "activeColor": "#3B82F6",
   "ttsSpeed": false,

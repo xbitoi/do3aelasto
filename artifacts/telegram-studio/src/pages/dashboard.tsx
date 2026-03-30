@@ -3,7 +3,7 @@ import { useGetSettings, useUpdateSettings, useStartBot, useStopBot, useTestBot,
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Input, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown } from "lucide-react";
+import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown, RefreshCw, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting, isStopping }: any) {
@@ -72,9 +72,43 @@ function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting
   )
 }
 
+const DEFAULT_GEMINI_MODELS = [
+  "gemini-2.5-flash-preview-04-17",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+];
+
 function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
   const [tab, setTab] = useState<'text' | 'color' | 'audio'>('text');
-  
+  const [models, setModels] = useState<string[]>(DEFAULT_GEMINI_MODELS);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const { toast } = useToast();
+
+  const handleFetchModels = async () => {
+    const geminiKey = localStorage.getItem('geminiKey') || '';
+    if (!geminiKey) {
+      toast({ title: "تنبيه", description: "أدخل مفتاح Gemini أولاً في قسم المفاتيح", variant: "destructive" });
+      return;
+    }
+    setFetchingModels(true);
+    try {
+      const res = await fetch(`/api/gemini-models?geminiKey=${encodeURIComponent(geminiKey)}`);
+      const data = await res.json();
+      if (data.models?.length) {
+        setModels(data.models);
+        toast({ title: "✅ تم جلب النماذج", description: `${data.models.length} نموذج متاح لمفتاحك` });
+      }
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر جلب النماذج، تحقق من المفتاح", variant: "destructive" });
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   if (!settings) return <PremiumCard><div className="animate-pulse h-[400px] bg-black/20 rounded-2xl" /></PremiumCard>;
 
   return (
@@ -123,6 +157,39 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                {label: "رجاء وأمل", value: "رجاء وأمل"},
                {label: "توكل وثقة", value: "توكل وثقة"}
              ]} />
+
+             <div className="pt-3 border-t border-border/50 space-y-2">
+               <div className="flex items-center justify-between gap-2">
+                 <label className="text-xs font-bold text-foreground/80 flex items-center gap-1.5">
+                   <Bot className="w-3.5 h-3.5 text-primary" />
+                   موديل Gemini للنص
+                 </label>
+                 <button
+                   onClick={handleFetchModels}
+                   disabled={fetchingModels}
+                   className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-3 py-1 rounded-lg transition-colors disabled:opacity-50"
+                 >
+                   <RefreshCw className={cn("w-3 h-3", fetchingModels && "animate-spin")} />
+                   {fetchingModels ? "جاري الجلب..." : "جلب من مفتاحك"}
+                 </button>
+               </div>
+               <select
+                 value={settings.geminiModel || "auto"}
+                 onChange={(e) => setSettings({...settings, geminiModel: e.target.value})}
+                 className="w-full appearance-none bg-black/40 border border-border rounded-xl px-4 py-2.5 pl-10 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-foreground text-sm font-bold shadow-inner cursor-pointer hover:border-border/80"
+               >
+                 <option value="auto" className="bg-card">🤖 تلقائي (أفضل موديل متاح)</option>
+                 {models.map((m) => (
+                   <option key={m} value={m} className="bg-card font-mono">{m}</option>
+                 ))}
+               </select>
+               {(settings.geminiModel && settings.geminiModel !== "auto") && (
+                 <p className="text-xs text-primary/70 font-semibold">
+                   ✓ سيُستخدم <span className="font-mono">{settings.geminiModel}</span> أولاً
+                 </p>
+               )}
+             </div>
+
              <div className="pt-3 border-t border-border/50">
                <Switch label="تخفيض سرعة القراءة (لزيادة الوضوح)" checked={settings.ttsSpeed} onChange={(v: boolean) => setSettings({...settings, ttsSpeed: v})} />
              </div>

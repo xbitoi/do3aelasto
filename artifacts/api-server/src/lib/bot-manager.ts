@@ -32,6 +32,7 @@ export interface AppSettings {
   videoQuality: string;
   bgOpacity: number;
   showBackground: boolean;
+  geminiModel: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -47,6 +48,7 @@ export const defaultSettings: AppSettings = {
   videoQuality: "fast",
   bgOpacity: 40,
   showBackground: true,
+  geminiModel: "auto",
 };
 
 let botInstance: TelegramBot | null = null;
@@ -221,7 +223,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     );
 
     addLog("🤖 توليد الدعاء بالذكاء الاصطناعي...", "processing");
-    const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle, groqKeyStore);
+    const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle, groqKeyStore, settings.geminiModel || "auto");
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
 
     await botInstance!.editMessageText(
@@ -287,7 +289,7 @@ async function downloadFile(url: string, dest: string) {
 }
 
 /** Fetch available Gemini models that support generateContent, ordered by preference */
-async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
+export async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
   const preferredOrder = [
     "gemini-2.5-flash-preview-04-17",
     "gemini-2.5-flash",
@@ -386,7 +388,7 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
   throw lastErr || new Error("فشلت جميع نماذج Groq");
 }
 
-async function generateDuaa(geminiKey: string, videoDuration: number, _style: string, groqKey = ""): Promise<string> {
+async function generateDuaa(geminiKey: string, videoDuration: number, _style: string, groqKey = "", selectedModel = "auto"): Promise<string> {
   const minWords = 15;
   const maxWords = 20;
   addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
@@ -413,14 +415,20 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
 مثال على الطول المطلوب: "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالآخِرَةِ رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً"
 اكتب الدعاء فقط بدون أي مقدمة:`;
 
-  // Gemini models to try — prioritize Gemini 2.5 (3rd generation)
-  const geminiModels = [
+  // Determine which models to try — use selected model first, then fallback chain
+  const fallbackChain = [
     "gemini-2.5-flash-preview-04-17",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
   ];
+  const geminiModels = (selectedModel && selectedModel !== "auto")
+    ? [selectedModel, ...fallbackChain.filter((m) => m !== selectedModel)]
+    : fallbackChain;
+  if (selectedModel && selectedModel !== "auto") {
+    addLog(`🎯 الموديل المختار: ${selectedModel}`, "info");
+  }
 
   const genAI = new GoogleGenerativeAI(geminiKey);
   let bestGeminiText = "";

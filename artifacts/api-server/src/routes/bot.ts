@@ -7,6 +7,7 @@ import {
   getSettings,
   updateSettings,
   defaultSettings,
+  getAvailableGeminiModels,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -41,6 +42,16 @@ router.post("/bot/test", async (req, res) => {
   }
   const result = await testBotToken(botToken);
   res.json(result);
+});
+
+router.get("/gemini-models", async (req, res) => {
+  const geminiKey = req.query.geminiKey as string;
+  if (!geminiKey) {
+    res.status(400).json({ error: "geminiKey مطلوب" });
+    return;
+  }
+  const models = await getAvailableGeminiModels(geminiKey);
+  res.json({ models });
 });
 
 router.get("/settings", (_req, res) => {

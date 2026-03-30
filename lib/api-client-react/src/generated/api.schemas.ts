@@ -73,4 +73,9 @@ export interface AppSettings {
   videoQuality?: string;
   bgOpacity?: number;
   showBackground?: boolean;
+  geminiModel?: string;
+}
+
+export interface GeminiModelsResult {
+  models: string[];
 }

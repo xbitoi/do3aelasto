@@ -34,10 +34,15 @@ export interface AppSettings {
   bgOpacity: number;
   showBackground: boolean;
   geminiModel: string;
-  originalVolume: number;  // 0-200 (%)
-  duaaVolume: number;      // 0-200 (%)
+  originalVolume: number;
+  duaaVolume: number;
   wordEffect: string;
   transitionEffect: string;
+  // Social media publishing
+  youtubeToken: string;
+  facebookToken: string;
+  tiktokToken: string;
+  publishDescription: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -59,6 +64,10 @@ export const defaultSettings: AppSettings = {
   duaaVolume: 120,
   wordEffect: "random",
   transitionEffect: "random",
+  youtubeToken: "",
+  facebookToken: "",
+  tiktokToken: "",
+  publishDescription: "",
 };
 
 interface ChatSession {
@@ -77,6 +86,35 @@ let geminiKeyStore = "";
 let groqKeyStore = "";
 let logs: LogEntry[] = [];
 const chatSessions = new Map<number, ChatSession>();
+
+// ── Last published video (for "نشر" command) ──────────────────────────────
+const LAST_VIDEO_FILE = path.join(process.cwd(), "last-video.json");
+const LAST_VIDEO_PATH = path.join(process.cwd(), "last-video.mp4");
+
+interface LastVideoInfo {
+  duaaText: string;
+  timestamp: number;
+}
+
+function saveLastVideo(videoPath: string, duaaText: string) {
+  try {
+    fs.copyFileSync(videoPath, LAST_VIDEO_PATH);
+    const info: LastVideoInfo = { duaaText, timestamp: Date.now() };
+    fs.writeFileSync(LAST_VIDEO_FILE, JSON.stringify(info, null, 2), "utf8");
+  } catch (err) {
+    logger.warn({ err }, "Failed to save last video");
+  }
+}
+
+function loadLastVideo(): (LastVideoInfo & { videoPath: string }) | null {
+  try {
+    if (fs.existsSync(LAST_VIDEO_FILE) && fs.existsSync(LAST_VIDEO_PATH)) {
+      const info: LastVideoInfo = JSON.parse(fs.readFileSync(LAST_VIDEO_FILE, "utf8"));
+      return { ...info, videoPath: LAST_VIDEO_PATH };
+    }
+  } catch {}
+  return null;
+}
 
 // ── Active operations & cancellation ──────────────────────────────────────
 interface ActiveOp {
@@ -200,6 +238,315 @@ export async function testBotToken(token: string) {
   return { success: false, error: data.description || "توكن غير صالح" };
 }
 
+// ── Social media key testing ──────────────────────────────────────────────
+
+export async function testYouTubeToken(token: string): Promise<{ success: boolean; channelName?: string; channelId?: string; subscribers?: string; error?: string }> {
+  try {
+    const res = await fetch(
+      "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true",
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) {
+      const err = await res.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `خطأ ${res.status}` };
+    }
+    const data = await res.json() as { items?: Array<{ snippet: { title: string }; id: string; statistics: { subscriberCount: string } }> };
+    const ch = data.items?.[0];
+    if (!ch) return { success: false, error: "لم يُعثر على قناة مرتبطة بهذا التوكن" };
+    const subs = parseInt(ch.statistics?.subscriberCount || "0");
+    const subsStr = subs >= 1000000 ? `${(subs/1000000).toFixed(1)}M` : subs >= 1000 ? `${(subs/1000).toFixed(1)}K` : String(subs);
+    return { success: true, channelName: ch.snippet.title, channelId: ch.id, subscribers: subsStr };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function testFacebookToken(token: string): Promise<{ success: boolean; pageName?: string; pageId?: string; followers?: string; error?: string }> {
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/me/accounts?fields=name,id,followers_count&access_token=${token}`
+    );
+    if (!res.ok) {
+      const err = await res.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `خطأ ${res.status}` };
+    }
+    const data = await res.json() as { data?: Array<{ name: string; id: string; followers_count?: number }> };
+    const page = data.data?.[0];
+    if (!page) {
+      // Try getting user info
+      const userRes = await fetch(`https://graph.facebook.com/me?fields=name,id&access_token=${token}`);
+      if (userRes.ok) {
+        const user = await userRes.json() as { name?: string; id?: string };
+        if (user.name) return { success: true, pageName: user.name, pageId: user.id };
+      }
+      return { success: false, error: "لم يُعثر على صفحة مرتبطة بهذا التوكن" };
+    }
+    const f = page.followers_count || 0;
+    const followersStr = f >= 1000000 ? `${(f/1000000).toFixed(1)}M` : f >= 1000 ? `${(f/1000).toFixed(1)}K` : String(f);
+    return { success: true, pageName: page.name, pageId: page.id, followers: followersStr };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function testTikTokToken(token: string): Promise<{ success: boolean; username?: string; displayName?: string; followers?: string; error?: string }> {
+  try {
+    const res = await fetch(
+      "https://open.tiktokapis.com/v2/user/info/?fields=display_name,username,follower_count",
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) {
+      const err = await res.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `خطأ ${res.status}` };
+    }
+    const data = await res.json() as { data?: { user?: { display_name?: string; username?: string; follower_count?: number } } };
+    const user = data.data?.user;
+    if (!user) return { success: false, error: "لم يُعثر على حساب مرتبط بهذا التوكن" };
+    const f = user.follower_count || 0;
+    const followersStr = f >= 1000000 ? `${(f/1000000).toFixed(1)}M` : f >= 1000 ? `${(f/1000).toFixed(1)}K` : String(f);
+    return { success: true, username: user.username, displayName: user.display_name, followers: followersStr };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ── Social media publishing ───────────────────────────────────────────────
+
+async function publishToYouTube(videoPath: string, title: string, description: string, token: string): Promise<{ success: boolean; videoId?: string; url?: string; error?: string }> {
+  try {
+    addLog("📺 رفع الفيديو على يوتيوب...", "processing");
+    const videoBuffer = fs.readFileSync(videoPath);
+    const videoSize = videoBuffer.length;
+
+    // Step 1: Initialize resumable upload
+    const initRes = await fetch(
+      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": "video/mp4",
+          "X-Upload-Content-Length": String(videoSize),
+        },
+        body: JSON.stringify({
+          snippet: { title: title.slice(0, 100), description, defaultLanguage: "ar", tags: ["دعاء", "إسلامي", "قرآن"] },
+          status: { privacyStatus: "public", selfDeclaredMadeForKids: false },
+        }),
+      }
+    );
+
+    if (!initRes.ok) {
+      const err = await initRes.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `فشل تهيئة الرفع: ${initRes.status}` };
+    }
+
+    const uploadUrl = initRes.headers.get("location");
+    if (!uploadUrl) return { success: false, error: "لم يُعثر على رابط الرفع" };
+
+    // Step 2: Upload video
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "video/mp4", "Content-Length": String(videoSize) },
+      body: videoBuffer,
+    });
+
+    if (!uploadRes.ok && uploadRes.status !== 308) {
+      return { success: false, error: `فشل رفع الفيديو: ${uploadRes.status}` };
+    }
+
+    const result = await uploadRes.json() as { id?: string };
+    const videoId = result.id;
+    if (!videoId) return { success: false, error: "لم يُعثر على معرف الفيديو بعد الرفع" };
+
+    return { success: true, videoId, url: `https://youtu.be/${videoId}` };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function publishToFacebook(videoPath: string, description: string, token: string): Promise<{ success: boolean; videoId?: string; url?: string; pageId?: string; error?: string }> {
+  try {
+    addLog("📘 نشر الفيديو على فيسبوك...", "processing");
+
+    // Get page ID first
+    const pagesRes = await fetch(`https://graph.facebook.com/me/accounts?access_token=${token}`);
+    let pageId = "me";
+    let pageToken = token;
+    if (pagesRes.ok) {
+      const pages = await pagesRes.json() as { data?: Array<{ id: string; access_token: string }> };
+      if (pages.data?.[0]) {
+        pageId = pages.data[0].id;
+        pageToken = pages.data[0].access_token || token;
+      }
+    }
+
+    const videoBuffer = fs.readFileSync(videoPath);
+    const formData = new FormData();
+    formData.append("description", description);
+    formData.append("access_token", pageToken);
+    formData.append("source", new Blob([videoBuffer], { type: "video/mp4" }), "video.mp4");
+
+    const res = await fetch(`https://graph.facebook.com/${pageId}/videos`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `فشل النشر: ${res.status}` };
+    }
+
+    const result = await res.json() as { id?: string };
+    const videoId = result.id;
+    return { success: true, videoId, url: `https://www.facebook.com/watch/?v=${videoId}`, pageId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function publishToTikTok(videoPath: string, description: string, token: string): Promise<{ success: boolean; publishId?: string; error?: string }> {
+  try {
+    addLog("🎵 نشر الفيديو على تيك توك...", "processing");
+    const videoBuffer = fs.readFileSync(videoPath);
+    const videoSize = videoBuffer.length;
+
+    // Step 1: Init upload
+    const initRes = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: description.slice(0, 150),
+          privacy_level: "PUBLIC_TO_EVERYONE",
+          disable_duet: false,
+          disable_comment: false,
+          disable_stitch: false,
+        },
+        source_info: {
+          source: "FILE_UPLOAD",
+          video_size: videoSize,
+          chunk_size: videoSize,
+          total_chunk_count: 1,
+        },
+      }),
+    });
+
+    if (!initRes.ok) {
+      const err = await initRes.json() as { error?: { message?: string } };
+      return { success: false, error: err.error?.message || `فشل تهيئة تيك توك: ${initRes.status}` };
+    }
+
+    const initData = await initRes.json() as { data?: { publish_id?: string; upload_url?: string }; error?: { message?: string } };
+    if (initData.error?.message) return { success: false, error: initData.error.message };
+
+    const publishId = initData.data?.publish_id;
+    const uploadUrl = initData.data?.upload_url;
+    if (!uploadUrl || !publishId) return { success: false, error: "لم يُعثر على رابط الرفع من تيك توك" };
+
+    // Step 2: Upload video
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
+        "Content-Length": String(videoSize),
+      },
+      body: videoBuffer,
+    });
+
+    if (!uploadRes.ok) {
+      return { success: false, error: `فشل رفع تيك توك: ${uploadRes.status}` };
+    }
+
+    return { success: true, publishId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function handlePublish(chatId: number, settings: AppSettings) {
+  const last = loadLastVideo();
+  if (!last) {
+    await botInstance!.sendMessage(
+      chatId,
+      "⚠️ *لا يوجد فيديو سابق للنشر!*\n\nقم بمعالجة فيديو أولاً ثم أرسل *نشر*.",
+      { parse_mode: "Markdown" }
+    );
+    return;
+  }
+
+  const hasYT = Boolean(settings.youtubeToken);
+  const hasFB = Boolean(settings.facebookToken);
+  const hasTT = Boolean(settings.tiktokToken);
+
+  if (!hasYT && !hasFB && !hasTT) {
+    await botInstance!.sendMessage(
+      chatId,
+      "⚠️ *لم تُضف مفاتيح منصات التواصل!*\n\nأضف مفاتيح يوتيوب أو فيسبوك أو تيك توك من لوحة التحكم.",
+      { parse_mode: "Markdown" }
+    );
+    return;
+  }
+
+  const platforms = [hasYT && "يوتيوب", hasFB && "فيسبوك", hasTT && "تيك توك"].filter(Boolean).join("، ");
+  const statusMsg = await botInstance!.sendMessage(
+    chatId,
+    `📤 *جاري النشر على: ${platforms}...*\n\nيرجى الانتظار...`,
+    { parse_mode: "Markdown" }
+  );
+
+  const duaaShort = last.duaaText.split(/\s+/).slice(0, 5).join(" ");
+  const title = `🤲 ${duaaShort}...`;
+  const customDesc = settings.publishDescription?.trim();
+  const description = customDesc
+    ? `🤲 ${last.duaaText}\n\n━━━━━━━━━━\n${customDesc}`
+    : `🤲 ${last.duaaText}`;
+
+  const results: string[] = [];
+
+  if (hasYT) {
+    const ytRes = await publishToYouTube(last.videoPath, title, description, settings.youtubeToken);
+    if (ytRes.success) {
+      results.push(`✅ *يوتيوب:* [مشاهدة الفيديو](${ytRes.url})`);
+      addLog(`✅ تم النشر على يوتيوب: ${ytRes.url}`, "success");
+    } else {
+      results.push(`❌ *يوتيوب:* ${ytRes.error}`);
+      addLog(`❌ فشل النشر على يوتيوب: ${ytRes.error}`, "error");
+    }
+  }
+
+  if (hasFB) {
+    const fbRes = await publishToFacebook(last.videoPath, description, settings.facebookToken);
+    if (fbRes.success) {
+      results.push(`✅ *فيسبوك:* [مشاهدة الفيديو](${fbRes.url})`);
+      addLog(`✅ تم النشر على فيسبوك: ${fbRes.url}`, "success");
+    } else {
+      results.push(`❌ *فيسبوك:* ${fbRes.error}`);
+      addLog(`❌ فشل النشر على فيسبوك: ${fbRes.error}`, "error");
+    }
+  }
+
+  if (hasTT) {
+    const ttRes = await publishToTikTok(last.videoPath, description, settings.tiktokToken);
+    if (ttRes.success) {
+      results.push(`✅ *تيك توك:* تم إرسال الفيديو للمراجعة`);
+      addLog(`✅ تم النشر على تيك توك`, "success");
+    } else {
+      results.push(`❌ *تيك توك:* ${ttRes.error}`);
+      addLog(`❌ فشل النشر على تيك توك: ${ttRes.error}`, "error");
+    }
+  }
+
+  await botInstance!.editMessageText(
+    `📊 *نتائج النشر:*\n\n${results.join("\n")}\n\n━━━━━━━━━━\n🤲 _${last.duaaText.slice(0, 80)}_`,
+    { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
+  ).catch(() => {});
+}
+
 export async function startBot(geminiKey: string, botToken: string, settings: AppSettings, groqKey = "", isAutoStart = false) {
   if (botRunning) {
     return { success: false, message: "البوت يعمل بالفعل" };
@@ -224,7 +571,6 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
 
   addLog(`✅ تم تشغيل البوت: ${botName} (@${botUsername})${isAutoStart ? " (تشغيل تلقائي)" : ""}`, "success");
 
-  // إرسال رسالة ترحيب لجميع المحادثات المعروفة عند التشغيل التلقائي بعد إعادة التشغيل
   if (isAutoStart && knownChatIds.size > 0) {
     setTimeout(async () => {
       for (const chatId of knownChatIds) {
@@ -234,7 +580,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
             `🟢 *البوت عاد للعمل!*\n\nتم إعادة تشغيل البوت تلقائياً وهو جاهز لاستقبال الفيديوهات. 🤲`,
             { parse_mode: "Markdown" }
           );
-        } catch { /* قد تكون المحادثة غير متاحة */ }
+        } catch { }
       }
     }, 3000);
   }
@@ -246,7 +592,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     addLog(`👤 مستخدم جديد: ${name}`, "info");
     await botInstance!.sendMessage(
       chatId,
-      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n📋 *أوامر مفيدة:*\n• *حالة* → معرفة العمليات الجارية\n• *توقف* → إيقاف المعالجة الحالية\n\n🎬 *جرّب الآن!*`,
+      `🌟 *أهلاً ${name}!*\n\nأنا بوت الدعاء الذكي 🤲\n\n📌 *كيف أعمل:*\n• أرسل فيديو مباشرةً → أضع عليه الدعاء فوراً\n• أو أرسل *ابدا* لدمج عدة مقاطع مرقمة\n\n📋 *أوامر مفيدة:*\n• *حالة* → معرفة العمليات الجارية\n• *توقف* → إيقاف المعالجة الحالية\n• *نشر* → نشر آخر فيديو على منصات التواصل\n\n🎬 *جرّب الآن!*`,
       { parse_mode: "Markdown" }
     );
   });
@@ -254,7 +600,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   botInstance.onText(/\/help/, async (msg) => {
     await botInstance!.sendMessage(
       msg.chat.id,
-      `📖 *مساعدة - بوت الدعاء الذكي*\n\n*فيديو مباشر:*\nأرسل فيديو واحد → يُعالج فوراً\n\n*دمج متعدد:*\n1️⃣ أرسل *ابدا*\n2️⃣ أرسل الفيديوهات مع أرقام في الوصف (1، 2، 3...)\n3️⃣ أرسل *ابدا* → يدمجها والدعاء يظهر على المقطع الأخير\n\n📋 *الأوامر النصية:*\n• *حالة* → العمليات الجارية\n• *توقف* → إيقاف معالجتك الحالية\n\n/start - بدء التشغيل`,
+      `📖 *مساعدة - بوت الدعاء الذكي*\n\n*فيديو مباشر:*\nأرسل فيديو واحد → يُعالج فوراً\n\n*دمج متعدد:*\n1️⃣ أرسل *ابدا*\n2️⃣ أرسل الفيديوهات مع أرقام في الوصف (1، 2، 3...)\n3️⃣ أرسل *ابدا* → يدمجها والدعاء يظهر على المقطع الأخير\n\n📋 *الأوامر النصية:*\n• *حالة* → العمليات الجارية\n• *توقف* → إيقاف معالجتك الحالية\n• *نشر* → نشر آخر فيديو على منصات التواصل الاجتماعي\n\n/start - بدء التشغيل`,
       { parse_mode: "Markdown" }
     );
   });
@@ -344,6 +690,12 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
       return;
     }
 
+    // ── أمر النشر ───────────────────────────────────────────────
+    if (text === "نشر" || text === "publish") {
+      await handlePublish(chatId, getSettings());
+      return;
+    }
+
     // ── أمر ابدا ────────────────────────────────────────────────
     if (text === "ابدا" || text === "ابدأ") {
       const session = chatSessions.get(chatId);
@@ -426,7 +778,6 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     await downloadFile(fileUrl, videoPath);
     checkCancelled(chatId);
 
-    // قراءة المدة الحقيقية من الملف بدلاً من بيانات تيليغرام
     addLog("📏 قراءة بيانات الفيديو...", "processing");
     const actualDuration = await getVideoDuration(videoPath);
     addLog(`⏱️ مدة الفيديو الحقيقية: ${actualDuration.toFixed(1)}ث`, "info");
@@ -464,6 +815,9 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     await processVideoWithText(videoPath, audioPath, duaaText, outputPath, settings);
     checkCancelled(chatId);
 
+    // Save as last video for publishing
+    saveLastVideo(outputPath, duaaText);
+
     setOpStage(chatId, "إرسال الفيديو...");
     await botInstance!.editMessageText(
       "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
@@ -475,7 +829,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
       chatId,
       fs.createReadStream(outputPath),
       {
-        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_`,
+        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشر هذا الفيديو على منصات التواصل`,
         parse_mode: "Markdown",
       }
     );
@@ -582,6 +936,7 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       "⏳ *جاري المعالجة...*\n\n🤖 توليد الدعاء للمقطع الأخير...",
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
+
     const duaaText = await generateDuaa(geminiKeyStore, lastDuration, settings.duaaStyle, groqKeyStore, settings.geminiModel || "auto");
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
     checkCancelled(chatId);
@@ -613,8 +968,9 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
         "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
+      saveLastVideo(lastProcessedPath, duaaText);
       await botInstance!.sendVideo(chatId, fs.createReadStream(lastProcessedPath), {
-        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_`,
+        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشره على منصات التواصل`,
         parse_mode: "Markdown",
       });
     } else {
@@ -637,14 +993,14 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       segmentPaths.push(lastProcessedPath);
       checkCancelled(chatId);
 
-      // 8. Concat all segments
+      // 8. Concat all segments with transitions
       setOpStage(chatId, "دمج المقاطع...");
       await botInstance!.editMessageText(
-        "⏳ *جاري المعالجة...*\n\n🎞️ دمج المقاطع...",
+        "⏳ *جاري المعالجة...*\n\n🎞️ دمج المقاطع بمؤثرات الانتقال...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       const finalPath = path.join(tmpDir, "final.mp4");
-      await concatVideos(segmentPaths, finalPath);
+      await concatVideosWithTransition(segmentPaths, finalPath, settings.transitionEffect || "random");
       checkCancelled(chatId);
 
       setOpStage(chatId, "إرسال الفيديو النهائي...");
@@ -652,8 +1008,9 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
         "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
+      saveLastVideo(finalPath, duaaText);
       await botInstance!.sendVideo(chatId, fs.createReadStream(finalPath), {
-        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_`,
+        caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشره على منصات التواصل`,
         parse_mode: "Markdown",
       });
     }
@@ -741,7 +1098,97 @@ async function normalizeVideoSegment(
   await execAsync(cmd, { timeout: 120000 });
 }
 
-async function concatVideos(videoPaths: string[], outputPath: string) {
+function pickTransition(effect: string): string {
+  const transitions: Record<string, string> = {
+    crossfade: "fade",
+    slide_left: "slideleft",
+    slide_right: "slideright",
+    slide_up: "slideup",
+    fade_black: "fadeblack",
+    zoom: "zoomin",
+    wipe: "wipeleft",
+  };
+
+  if (effect === "random") {
+    const all = Object.values(transitions);
+    return all[Math.floor(Math.random() * all.length)];
+  }
+
+  return transitions[effect] || "fade";
+}
+
+async function concatVideosWithTransition(videoPaths: string[], outputPath: string, transitionEffect: string) {
+  const n = videoPaths.length;
+  if (n === 1) {
+    fs.copyFileSync(videoPaths[0], outputPath);
+    return;
+  }
+
+  // Get durations for all segments (needed to calculate xfade offsets)
+  const durations: number[] = [];
+  for (const vp of videoPaths) {
+    durations.push(await getVideoDuration(vp));
+  }
+
+  const TRANS_DUR = 0.5; // seconds per transition
+
+  const inputs = videoPaths.map(p => `-i "${p}"`).join(" ");
+
+  // Build xfade video filter chain
+  // [0:v][1:v]xfade=transition=fade:duration=0.5:offset=D0-0.5[v01];
+  // [v01][2:v]xfade=transition=fade:duration=0.5:offset=D0+D1-1.0[v012];
+  // ...
+  const transition = pickTransition(transitionEffect);
+  addLog(`🎞️ تأثير الانتقال: ${transition}`, "info");
+
+  let videoFilter = "";
+  let audioFilter = "";
+  let cumulativeDur = durations[0];
+  let prevVideoLabel = "0:v";
+  let prevAudioLabel = "0:a";
+
+  for (let i = 1; i < n; i++) {
+    const offset = Math.max(0.1, cumulativeDur - TRANS_DUR);
+    const vLabel = i < n - 1 ? `[vtmp${i}]` : "[vout]";
+    const aLabel = i < n - 1 ? `[atmp${i}]` : "[aout]";
+
+    videoFilter += `[${prevVideoLabel}][${i}:v]xfade=transition=${transition}:duration=${TRANS_DUR}:offset=${offset.toFixed(3)}${vLabel};`;
+    audioFilter += `[${prevAudioLabel}][${i}:a]acrossfade=d=${TRANS_DUR}${aLabel};`;
+
+    prevVideoLabel = `vtmp${i}`;
+    prevAudioLabel = `atmp${i}`;
+    cumulativeDur += durations[i] - TRANS_DUR;
+  }
+
+  // Remove trailing semicolons
+  videoFilter = videoFilter.replace(/;$/, "");
+  audioFilter = audioFilter.replace(/;$/, "");
+
+  const filterComplex = `${videoFilter};${audioFilter}`;
+
+  const cmd = [
+    "ffmpeg",
+    inputs,
+    `-filter_complex "${filterComplex}"`,
+    `-map "[vout]" -map "[aout]"`,
+    `-c:v libx264 -preset fast`,
+    `-profile:v baseline -level 3.1`,
+    `-pix_fmt yuv420p`,
+    `-c:a aac -b:a 128k`,
+    `-movflags +faststart`,
+    `-y "${outputPath}"`,
+  ].join(" ");
+
+  try {
+    await execAsync(cmd, { timeout: 600000 });
+  } catch (err) {
+    // Fallback to simple concat if xfade fails (e.g., very short clips)
+    addLog(`⚠️ xfade فشل، التبديل للدمج البسيط...`, "warning");
+    await concatVideosSimple(videoPaths, outputPath);
+  }
+}
+
+async function concatVideosSimple(videoPaths: string[], outputPath: string) {
   const n = videoPaths.length;
   const inputs = videoPaths.map(p => `-i "${p}"`).join(" ");
   const filterIn = videoPaths.map((_, i) => `[${i}:v][${i}:a]`).join("");
@@ -799,7 +1246,6 @@ export async function getAvailableGeminiModels(apiKey: string): Promise<string[]
       .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
       .map((m) => m.name.replace("models/", ""));
 
-    // Sort by our preference order; put unknown models last
     const sorted = [
       ...preferredOrder.filter((m) => available.includes(m)),
       ...available.filter((m) => !preferredOrder.includes(m)),
@@ -815,7 +1261,6 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
   const groq = new Groq({ apiKey: groqKey });
   addLog("🤖 محاولة Groq...", "processing");
 
-  // Updated working Groq models
   const models = [
     "llama-3.3-70b-versatile",
     "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -823,7 +1268,6 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
     "qwen-qwq-32b",
   ];
 
-  // More explicit prompt for Groq
   const groqPrompt = `اكتب دعاءً إسلامياً بالعربية الفصحى مع التشكيل الكامل على جميع الحروف.
 موضوع الدعاء: ${randomTheme}
 عدد الكلمات: بين ${minWords} و${_maxWords} كلمة تماماً
@@ -851,7 +1295,6 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
         addLog(`✅ نجح Groq: ${model}`, "success");
         return text;
       }
-      // Keep the best result so far as fallback
       if (wordCount > bestCount) { bestText = text; bestCount = wordCount; }
       addLog(`⚠️ ${model}: ${wordCount} كلمة، التالي...`, "warning");
     } catch (err) {
@@ -861,7 +1304,6 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
     }
   }
 
-  // Accept best result if at least 8 words rather than failing completely
   if (bestCount >= 8 && bestText) {
     addLog(`⚠️ استخدام أفضل نتيجة Groq: ${bestCount} كلمة`, "warning");
     return bestText;
@@ -870,7 +1312,6 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, _maxWords
   throw lastErr || new Error("فشلت جميع نماذج Groq");
 }
 
-/** Check if text has sufficient Arabic tashkeel (diacritics) */
 function hasTashkeel(text: string): boolean {
   const arabicLetters = (text.match(/[\u0621-\u063A\u0641-\u064A]/g) || []).length;
   const diacritics = (text.match(/[\u064B-\u065F]/g) || []).length;
@@ -882,7 +1323,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   const maxWords = 20;
   addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
 
-  // Random Islamic theme each time
   const themes = [
     "استغفار وطلب المغفرة",
     "حمد الله وشكره",
@@ -898,7 +1338,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
   const randomTheme = themes[Math.floor(Math.random() * themes.length)];
   addLog(`🎲 الأسلوب العشوائي: ${randomTheme}`, "info");
 
-  // Strict tashkeel prompt — every single letter must carry its diacritic mark
   const prompt = `اكتب دعاءً إسلامياً بالعربية الفصحى موضوعه: ${randomTheme}.
 شروط صارمة جداً:
 ١- يجب أن يكون كل حرف في الدعاء مُشَكَّلاً تشكيلاً كاملاً (فتحة أو كسرة أو ضمة أو سكون أو تنوين أو شدة) بدون استثناء.
@@ -908,7 +1347,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
 "اللَّهُمَّ إِنِّي أَسْأَلُكَ الْعَفْوَ وَالْعَافِيَةَ فِي الدُّنْيَا وَالْآخِرَةِ، رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً"
 الدعاء المُشَكَّل:`;
 
-  // Determine which models to try — use selected model first, then fallback chain
   const fallbackChain = [
     "gemini-2.5-flash-preview-04-17",
     "gemini-2.5-flash",
@@ -966,7 +1404,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
     }
   }
 
-  // Fallback to Groq
   if (groqKey) {
     addLog("🔄 الانتقال إلى Groq...", "processing");
     try {
@@ -977,7 +1414,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
     }
   }
 
-  // Last resort: use best Gemini result even if short
   if (bestGeminiCount >= 8 && bestGeminiText) {
     addLog(`⚠️ استخدام أفضل نتيجة متاحة: ${bestGeminiCount} كلمة`, "warning");
     return bestGeminiText;
@@ -989,7 +1425,6 @@ async function generateDuaa(geminiKey: string, videoDuration: number, _style: st
 async function generateTTS(text: string, outputPath: string, slow: boolean, videoDuration?: number, voice = "ar-SA-HamedNeural") {
   const rawPath = outputPath.replace(".mp3", "_raw.mp3");
 
-  // Use edge-tts when a Neural voice is selected, fall back to gTTS for "gtts"
   if (voice && voice !== "gtts") {
     addLog(`🎙️ توليد الصوت بـ Edge TTS: ${voice}`, "processing");
     const txtFile = rawPath + ".txt";
@@ -1012,7 +1447,6 @@ async function generateTTS(text: string, outputPath: string, slow: boolean, vide
       try { fs.unlinkSync(pyFile); } catch {}
     }
   } else {
-    // gTTS fallback
     addLog(`🎙️ توليد الصوت بـ gTTS`, "processing");
     const escapedText = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const speed = slow ? "slow=True" : "slow=False";
@@ -1026,21 +1460,17 @@ async function generateTTS(text: string, outputPath: string, slow: boolean, vide
     return;
   }
 
-  // Measure actual audio duration
   const audioDuration = await getAudioDuration(rawPath);
   addLog(`🎵 مدة الصوت: ${audioDuration.toFixed(1)}ث | الفيديو: ${videoDuration.toFixed(1)}ث`, "info");
 
   if (audioDuration <= videoDuration) {
-    // Audio fits — use as-is
     fs.renameSync(rawPath, outputPath);
     return;
   }
 
-  // Audio longer than video — speed it up with atempo filter
   const ratio = audioDuration / videoDuration;
   addLog(`⚡ تسريع الصوت: ${ratio.toFixed(2)}x لمطابقة الفيديو`, "processing");
 
-  // Build atempo chain (each step between 0.5 and 2.0)
   const atempoFilters: string[] = [];
   let remaining = ratio;
   let safety = 0;
@@ -1059,7 +1489,6 @@ async function generateTTS(text: string, outputPath: string, slow: boolean, vide
   addLog(`✅ تم تعديل سرعة الصوت`, "success");
 }
 
-/** Estimate per-word timings proportionally by character count */
 function estimateWordTimings(words: string[], audioDuration: number): { start: number; end: number }[] {
   if (!words.length) return [];
   const totalChars = words.reduce((s, w) => s + w.length, 0) || 1;
@@ -1074,11 +1503,6 @@ function estimateWordTimings(words: string[], audioDuration: number): { start: n
   return timings;
 }
 
-/**
- * Generate animated text overlay frames with evaporation effect.
- * Returns a ffmpeg concat-list file path. Each PNG frame has a specific duration.
- * Spoken words evaporate (fade + drift up) as the next word is spoken.
- */
 async function generateAnimatedTextFrames(params: {
   words: string[];
   wordTimings: { start: number; end: number }[];
@@ -1088,10 +1512,10 @@ async function generateAnimatedTextFrames(params: {
   fontSize: number;
   strokeWidth: number;
   yRatio: number;
-  activeColor: string;  // hex "RRGGBB"
+  activeColor: string;
   totalDuration: number;
   outputDir: string;
-}): Promise<string> {  // returns concat-list path
+}): Promise<string> {
   const scriptPath = path.join(os.tmpdir(), `anim_arabic_${Date.now()}.py`);
   const paramsPath = path.join(os.tmpdir(), `anim_params_${Date.now()}.json`);
   const concatListPath = path.join(params.outputDir, "frames.txt");
@@ -1125,21 +1549,19 @@ def hex_to_rgb(h):
 
 ACTIVE_RGB = hex_to_rgb(active_hex)
 
-# Harmonious color palette for spoken words
 PALETTE = [
-    (255, 215,   0),  # Gold
-    (255, 143, 171),  # Rose
-    (116, 192, 252),  # Sky Blue
-    (105, 219, 124),  # Mint
-    (255, 179,  71),  # Peach
-    (192, 132, 252),  # Lavender
-    ( 34, 211, 238),  # Aqua
-    (251, 146,  60),  # Coral
+    (255, 215,   0),
+    (255, 143, 171),
+    (116, 192, 252),
+    (105, 219, 124),
+    (255, 179,  71),
+    (192, 132, 252),
+    ( 34, 211, 238),
+    (251, 146,  60),
 ]
-EVAP_STEPS = 7        # sub-frames for evaporation animation
-EVAP_Y_DRIFT = 22     # pixels word drifts upward while evaporating
+EVAP_STEPS = 7
+EVAP_Y_DRIFT = 22
 
-# Load font
 font = None
 fallback_fonts = [
     font_path,
@@ -1160,7 +1582,6 @@ if font is None:
 dummy_img = Image.new('RGBA', (W, H), (0,0,0,0))
 dummy_draw = ImageDraw.Draw(dummy_img)
 
-# Word-wrap into lines (88% width)
 lines = []
 current_line = []
 for word in words:
@@ -1201,7 +1622,6 @@ LINE_H = max(word_h(w) for w in words) if words else font_size
 LINE_SPACING = int(font_size * 0.4)
 WORD_GAP = int(font_size * 0.12)
 
-# Assign palette colors upfront
 word_colors = {}
 for i in range(len(words)):
     word_colors[i] = PALETTE[i % len(PALETTE)]
@@ -1221,11 +1641,6 @@ def draw_word_at(draw, word, x, y, rgb, opacity, stroke_w):
     draw.text((x, y), r, font=font, fill=(rgb[0], rgb[1], rgb[2], opacity))
 
 def render_frame(active_idx, evap_word_idx, evap_phase):
-    """
-    active_idx: word index being spoken now (-1 = before any word)
-    evap_word_idx: word index currently evaporating (-1 = none)
-    evap_phase: 0.0 = just started evaporating, 1.0 = fully gone
-    """
     img = Image.new('RGBA', (W, H), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     cur_line = get_line_idx(max(0, active_idx)) if active_idx >= 0 else 0
@@ -1241,7 +1656,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
         ls = line_start_indices[li]
         widths = [word_w(w) for w in lw_list]
         total_w = sum(widths) + WORD_GAP * max(0, len(lw_list) - 1)
-        x = (W + total_w) // 2  # RTL: start from right
+        x = (W + total_w) // 2
 
         for i, word in enumerate(lw_list):
             g_idx = ls + i
@@ -1249,26 +1664,22 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
             x -= ww
 
             if g_idx == evap_word_idx and evap_phase > 0:
-                # Evaporating word: fade + drift up
                 op = int(base_op * (1.0 - evap_phase))
                 y_draw = y_top - int(evap_phase * EVAP_Y_DRIFT)
                 rgb = word_colors[g_idx]
                 draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
             elif g_idx == active_idx:
-                # Currently spoken: bright highlight
                 draw_word_at(draw, word, x, y_top, ACTIVE_RGB, base_op, stroke)
             elif g_idx < active_idx and g_idx != evap_word_idx:
-                # Previously spoken & fully evaporated — invisible
                 pass
             else:
-                # Upcoming word: white, slightly dim
                 draw_word_at(draw, word, x, y_top, (255,255,255), int(base_op * 0.70), stroke)
             x -= WORD_GAP
 
     return img
 
 os.makedirs(output_dir, exist_ok=True)
-frame_entries = []  # list of (path, duration)
+frame_entries = []
 frame_idx = [0]
 
 def save_frame(img, tag):
@@ -1277,9 +1688,6 @@ def save_frame(img, tag):
     frame_idx[0] += 1
     return p
 
-# === Build the frame sequence ===
-
-# Pre-word frame (before first word)
 if word_timings:
     pre_dur = max(0.05, word_timings[0]['start'])
     img = render_frame(-1, -1, 0.0)
@@ -1292,25 +1700,21 @@ for i in range(len(words)):
     word_dur = max(0.05, next_start - timing['start'])
 
     if i == 0:
-        # First word: no evaporation, just active
         img = render_frame(i, -1, 0.0)
         p = save_frame(img, f'w{i}')
         frame_entries.append((p, word_dur))
     else:
-        # Split word duration into evaporation sub-frames
         sub_dur = word_dur / EVAP_STEPS
         for step in range(EVAP_STEPS):
-            phase = step / (EVAP_STEPS - 1)  # 0.0 to 1.0
+            phase = step / (EVAP_STEPS - 1)
             img = render_frame(i, i-1, phase)
             p = save_frame(img, f'w{i}_ev{step}')
             frame_entries.append((p, sub_dur))
 
-# Write ffmpeg concat list
 with open(concat_list_path, 'w', encoding='utf-8') as f:
     for path_str, dur in frame_entries:
         f.write(f"file '{path_str}'\\n")
         f.write(f"duration {dur:.4f}\\n")
-    # Repeat last frame once to avoid ffmpeg duration issues
     if frame_entries:
         f.write(f"file '{frame_entries[-1][0]}'\\n")
 
@@ -1335,7 +1739,6 @@ async function processVideoWithText(
   outputPath: string,
   settings: AppSettings
 ) {
-  // 1. Get video dimensions, duration, and audio duration in parallel
   const [videoW, videoH, videoDuration, audioDuration] = await Promise.all([
     getVideoWidth(videoPath),
     getVideoHeight(videoPath),
@@ -1350,12 +1753,10 @@ async function processVideoWithText(
   const strokeWidth = settings.strokeThickness;
   const yRatio = settings.yPosition / 100;
 
-  // 2. Estimate word timings based on audio duration
   const words = duaaText.split(/\s+/).filter((w) => w.length > 0);
   const wordTimings = estimateWordTimings(words, Math.min(audioDuration, videoDuration));
   addLog(`📝 عدد الكلمات: ${words.length} | الصوت: ${audioDuration.toFixed(1)}ث`, "info");
 
-  // 3. Generate animated overlay frames (with evaporation effect)
   const framesDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-frames-"));
   addLog(`🎨 توليد إطارات النص المتحرك بتأثير التبخر...`, "processing");
   const concatListPath = await generateAnimatedTextFrames({
@@ -1373,7 +1774,6 @@ async function processVideoWithText(
   });
   addLog(`✅ تم توليد إطارات التبخر بنجاح`, "success");
 
-  // 4. Check if video has audio
   let hasAudio = false;
   try {
     const { stdout } = await execAsync(
@@ -1382,11 +1782,6 @@ async function processVideoWithText(
     hasAudio = stdout.trim().length > 0;
   } catch {}
 
-  // 5. Build ffmpeg command
-  //    Input 0: original video
-  //    Input 1: TTS audio
-  //    Input 2: overlay animation (from concat list of PNGs)
-  //    The concat-list input has alpha transparency; overlay filter handles it automatically.
   let filterComplex: string;
   let audioMap: string;
 
@@ -1493,7 +1888,6 @@ function getFontPath(fontName: string): string {
   const p = fontMap[fontName];
   if (p && fs.existsSync(p)) return p;
 
-  // Fallback: try any font in the known fonts directory
   const knownFonts = Object.values(fontMap);
   for (const f of knownFonts) {
     if (fs.existsSync(f)) {

@@ -10,6 +10,9 @@ import {
   defaultSettings,
   getAvailableGeminiModels,
   generateTTSPreview,
+  testYouTubeToken,
+  testFacebookToken,
+  testTikTokToken,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -84,6 +87,38 @@ router.get("/tts-preview", async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
   }
+});
+
+// ── Social media key testing ──────────────────────────────────────────────
+
+router.post("/social/test-youtube", async (req, res) => {
+  const { token } = req.body as { token: string };
+  if (!token) {
+    res.status(400).json({ success: false, error: "التوكن مطلوب" });
+    return;
+  }
+  const result = await testYouTubeToken(token);
+  res.json(result);
+});
+
+router.post("/social/test-facebook", async (req, res) => {
+  const { token } = req.body as { token: string };
+  if (!token) {
+    res.status(400).json({ success: false, error: "التوكن مطلوب" });
+    return;
+  }
+  const result = await testFacebookToken(token);
+  res.json(result);
+});
+
+router.post("/social/test-tiktok", async (req, res) => {
+  const { token } = req.body as { token: string };
+  if (!token) {
+    res.status(400).json({ success: false, error: "التوكن مطلوب" });
+    return;
+  }
+  const result = await testTikTokToken(token);
+  res.json(result);
 });
 
 export default router;

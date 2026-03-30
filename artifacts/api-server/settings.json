@@ -15,6 +15,6 @@
   "geminiModel": "gemma-3-27b-it",
   "originalVolume": 40,
   "duaaVolume": 145,
-  "wordEffect": "slide_up",
+  "wordEffect": "swing_right",
   "transitionEffect": "slide_up"
 }

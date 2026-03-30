@@ -599,6 +599,17 @@ async function processVideoWithText(
   }
 }
 
+async function getVideoWidth(videoPath: string): Promise<number> {
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v quiet -select_streams v:0 -show_entries stream=width -of csv=p=0 "${videoPath}"`
+    );
+    return parseInt(stdout.trim()) || 1280;
+  } catch {
+    return 1280;
+  }
+}
+
 async function getVideoHeight(videoPath: string): Promise<number> {
   try {
     const { stdout } = await execAsync(

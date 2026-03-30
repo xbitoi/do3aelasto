@@ -362,97 +362,85 @@ async function generateDuaaWithGroq(groqKey: string, minWords: number, maxWords:
   throw lastErr || new Error("فشلت جميع نماذج Groq");
 }
 
-async function generateDuaa(geminiKey: string, videoDuration: number, style: string, groqKey = ""): Promise<string> {
-  // Arabic TTS with tashkeel reads ~1.5 words/second
-  // Minimum 15 words, scale up with duration
+async function generateDuaa(geminiKey: string, videoDuration: number, _style: string, groqKey = ""): Promise<string> {
   const minWords = 15;
-  const maxWords = Math.min(50, Math.max(20, Math.floor(videoDuration * 1.8)));
+  const maxWords = 20;
   addLog(`📏 طول الفيديو: ${videoDuration.toFixed(1)}ث → دعاء من ${minWords}-${maxWords} كلمة`, "info");
+
+  // Random Islamic theme added to the request each time
+  const themes = [
+    "استغفار وطلب المغفرة",
+    "حمد الله وشكره",
+    "التضرع والخشوع",
+    "الرجاء في رحمة الله",
+    "طلب الهداية والتوفيق",
+    "الدعاء بالعافية والصحة",
+    "التوكل على الله",
+    "طلب البركة في الرزق",
+    "الدعاء للوالدين",
+    "طلب الثبات على الدين",
+  ];
+  const randomTheme = themes[Math.floor(Math.random() * themes.length)];
+  addLog(`🎲 الأسلوب العشوائي: ${randomTheme}`, "info");
+
+  // Short and clear prompt to minimize token usage
+  const prompt = `اكتب دعاءً إسلامياً بين ${minWords} و${maxWords} كلمة بالعربية الفصحى مع التشكيل الكامل، موضوعه: ${randomTheme}. فقط نص الدعاء بدون أي مقدمة أو شرح.`;
+
+  // Preferred Gemini models to try (no separate listing call to save quota)
+  const geminiModels = [
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+  ];
+
   const genAI = new GoogleGenerativeAI(geminiKey);
 
-  const styleMap: Record<string, string> = {
-    "تضرع وخشوع": "يعبّر عن التضرع والخشوع والانكسار بين يدي الله",
-    "شكر وحمد": "يعبّر عن الشكر والحمد والثناء على الله",
-    استغفار: "يطلب المغفرة والعفو والرحمة من الله",
-    "رجاء وأمل": "يعبّر عن الرجاء والأمل في رحمة الله وفضله",
-    "توكل وثقة": "يعبّر عن التوكل على الله والثقة بعطائه",
-  };
-
-  const styleDesc = styleMap[style] || styleMap["تضرع وخشوع"];
-
-  const prompt = `أنت خطاط إسلامي متخصص في كتابة الأدعية القرآنية المأثورة.
-
-اكتب دعاءً إسلامياً طويلاً باللغة العربية الفصحى مع التشكيل الكامل على كل حرف.
-
-الشروط الإلزامية:
-- عدد الكلمات: من ${minWords} إلى ${maxWords} كلمة
-- الأسلوب: ${styleDesc}
-- التشكيل: ضع الفتحة والضمة والكسرة والشدة والتنوين على كل كلمة بدقة تامة
-- اللغة: عربية فصحى راقية بأسلوب قرآني مأثور
-- الصياغة: جمل متصلة سلسة تبدأ بـ "اللَّهُمَّ" أو "رَبَّنَا" أو "يَا رَبِّ"
-- المحتوى: دعاء متنوع يشمل الدنيا والآخرة وصحة وذرية ومغفرة وهداية
-- الممنوعات: لا شرح، لا ترجمة، لا أقواس، لا أرقام، لا نقاط، فقط نص الدعاء
-
-اكتب الدعاء الآن مباشرةً بدون أي مقدمة:`;
-
-  // Fetch models available for this key, then try each until one succeeds
-  const models = await getAvailableGeminiModels(geminiKey);
-  addLog(`🔍 النماذج المتاحة: ${models.slice(0, 3).join(", ")}...`, "info");
-
-  let lastError: unknown;
-  for (const modelName of models) {
+  for (const modelName of geminiModels) {
     try {
-      addLog(`🤖 محاولة النموذج: ${modelName}`, "processing");
+      addLog(`🤖 محاولة: ${modelName}`, "processing");
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 600 },
+        generationConfig: { temperature: 1.0, maxOutputTokens: 300 },
       });
 
-      let text = result.response.text().trim();
-      // Join all non-empty lines into one continuous dua
-      const allLines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-      text = allLines.join(" ").trim();
-      // Remove any surrounding quotes or decorative chars
-      text = text.replace(/^["'«»\-–—*]+|["'«»\-–—*]+$/g, "").trim();
+      const raw = result.response.text().trim();
+      const text = raw
+        .split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
+        .join(" ")
+        .replace(/^["'«»\-–—*#]+|["'«»\-–—*#]+$/g, "")
+        .trim();
 
       const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
-      addLog(`📊 عدد الكلمات في الدعاء: ${wordCount}`, "info");
+      addLog(`📊 عدد الكلمات: ${wordCount}`, "info");
 
-      if (wordCount < minWords) {
-        addLog(`⚠️ الدعاء قصير جداً (${wordCount} كلمة)، سيُعاد المحاولة...`, "warning");
-        // Don't return yet, continue to next model or retry
-        lastError = new Error(`الدعاء قصير: ${wordCount} كلمة فقط`);
-        continue;
+      if (wordCount >= minWords) {
+        addLog(`✅ نجح: ${modelName}`, "success");
+        return text;
       }
-
-      addLog(`✅ نجح النموذج: ${modelName}`, "success");
-      return text;
+      addLog(`⚠️ ${modelName}: ${wordCount} كلمة فقط، التالي...`, "warning");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      const is429 = msg.includes("429") || msg.toLowerCase().includes("quota");
-      const is404 = msg.includes("404") || msg.toLowerCase().includes("not found");
-      addLog(`⚠️ فشل ${modelName}: ${is429 ? "تجاوز الحصة" : is404 ? "غير موجود" : msg.slice(0, 60)}`, "warning");
-      lastError = err;
-      // Only retry on quota/not-found errors; stop on auth errors
-      if (!is429 && !is404) break;
+      const isQuota = msg.includes("429") || msg.toLowerCase().includes("quota");
+      const isNotFound = msg.includes("404") || msg.toLowerCase().includes("not found");
+      addLog(`⚠️ ${modelName}: ${isQuota ? "تجاوز الحصة" : isNotFound ? "غير موجود" : msg.slice(0, 50)}`, "warning");
+      if (!isQuota && !isNotFound) break;
     }
   }
 
-  // Fallback to Groq if available
+  // Fallback to Groq
   if (groqKey) {
-    addLog("🔄 الانتقال إلى Groq كاحتياطي...", "processing");
+    addLog("🔄 الانتقال إلى Groq...", "processing");
     try {
-      return await generateDuaaWithGroq(groqKey, minWords, maxWords, styleDesc, prompt);
+      return await generateDuaaWithGroq(groqKey, minWords, maxWords, randomTheme, prompt);
     } catch (groqErr) {
       const msg = groqErr instanceof Error ? groqErr.message : String(groqErr);
-      addLog(`❌ فشل Groq أيضاً: ${msg.slice(0, 80)}`, "error");
+      addLog(`❌ فشل Groq: ${msg.slice(0, 60)}`, "error");
     }
   }
 
-  throw new Error(
-    `فشلت جميع نماذج Gemini والـ Groq. آخر خطأ: ${lastError instanceof Error ? lastError.message.slice(0, 150) : String(lastError)}`
-  );
+  throw new Error("فشل توليد الدعاء من جميع النماذج المتاحة.");
 }
 
 async function generateTTS(text: string, outputPath: string, slow: boolean) {

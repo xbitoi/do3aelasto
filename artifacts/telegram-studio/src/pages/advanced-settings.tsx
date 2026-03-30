@@ -36,8 +36,8 @@ function KeyInput({ label, placeholder, value, onChange, hint }: { label: string
 function SocialTokenSection({ label, icon: Icon, value, onChange, onTest, testing, testResult, hint }: any) {
   return (
     <div className="space-y-2 p-4 bg-black/20 rounded-2xl border border-border/40">
-      <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 text-primary" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <Icon className="w-4 h-4 text-primary shrink-0" />
         <span className="text-sm font-bold text-foreground">{label}</span>
         {testResult?.success === true && (
           <span className="mr-auto flex items-center gap-1 text-[11px] text-green-400 font-bold">
@@ -45,8 +45,8 @@ function SocialTokenSection({ label, icon: Icon, value, onChange, onTest, testin
           </span>
         )}
         {testResult?.success === false && (
-          <span className="mr-auto flex items-center gap-1 text-[11px] text-red-400 font-bold">
-            <XCircle className="w-3 h-3" /> فشل
+          <span className="mr-auto flex items-center gap-1 text-[11px] text-red-400 font-bold max-w-[200px] truncate">
+            <XCircle className="w-3 h-3 shrink-0" /> {testResult.error || "فشل الاتصال"}
           </span>
         )}
       </div>

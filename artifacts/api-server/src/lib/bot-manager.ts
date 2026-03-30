@@ -294,28 +294,44 @@ export async function testYouTubeToken(refreshToken: string, clientId: string, c
 }
 
 export async function testFacebookToken(token: string): Promise<{ success: boolean; pageName?: string; pageId?: string; followers?: string; error?: string }> {
+  const FB_VER = "v21.0";
+
+  const parseFollowers = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K`
+    : String(n);
+
   try {
-    const res = await fetch(
-      `https://graph.facebook.com/me/accounts?fields=name,id,followers_count&access_token=${token}`
+    // 1. Try /me directly — works for both User and Page tokens
+    const meRes = await fetch(
+      `https://graph.facebook.com/${FB_VER}/me?fields=name,id,fan_count,followers_count&access_token=${token}`
     );
-    if (!res.ok) {
-      const err = await res.json() as { error?: { message?: string } };
-      return { success: false, error: err.error?.message || `خطأ ${res.status}` };
-    }
-    const data = await res.json() as { data?: Array<{ name: string; id: string; followers_count?: number }> };
-    const page = data.data?.[0];
-    if (!page) {
-      // Try getting user info
-      const userRes = await fetch(`https://graph.facebook.com/me?fields=name,id&access_token=${token}`);
-      if (userRes.ok) {
-        const user = await userRes.json() as { name?: string; id?: string };
-        if (user.name) return { success: true, pageName: user.name, pageId: user.id };
+    if (meRes.ok) {
+      const me = await meRes.json() as { name?: string; id?: string; fan_count?: number; followers_count?: number; error?: { message?: string } };
+      if (me.name && !me.error) {
+        const f = me.fan_count || me.followers_count || 0;
+        return { success: true, pageName: me.name, pageId: me.id, followers: f > 0 ? parseFollowers(f) : undefined };
       }
-      return { success: false, error: "لم يُعثر على صفحة مرتبطة بهذا التوكن" };
+      if (me.error) {
+        return { success: false, error: me.error.message };
+      }
     }
-    const f = page.followers_count || 0;
-    const followersStr = f >= 1000000 ? `${(f/1000000).toFixed(1)}M` : f >= 1000 ? `${(f/1000).toFixed(1)}K` : String(f);
-    return { success: true, pageName: page.name, pageId: page.id, followers: followersStr };
+
+    // 2. Fallback: try /me/accounts (works for User tokens with pages)
+    const accountsRes = await fetch(
+      `https://graph.facebook.com/${FB_VER}/me/accounts?fields=name,id,fan_count&access_token=${token}`
+    );
+    if (accountsRes.ok) {
+      const accounts = await accountsRes.json() as { data?: Array<{ name: string; id: string; fan_count?: number }>; error?: { message?: string } };
+      if (accounts.error) return { success: false, error: accounts.error.message };
+      const page = accounts.data?.[0];
+      if (page) {
+        const f = page.fan_count || 0;
+        return { success: true, pageName: page.name, pageId: page.id, followers: f > 0 ? parseFollowers(f) : undefined };
+      }
+    }
+
+    return { success: false, error: "لم يُعثر على صفحة أو حساب مرتبط بهذا التوكن" };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -406,18 +422,29 @@ async function publishToYouTube(videoPath: string, title: string, description: s
 }
 
 async function publishToFacebook(videoPath: string, description: string, token: string): Promise<{ success: boolean; videoId?: string; url?: string; pageId?: string; error?: string }> {
+  const FB_VER = "v21.0";
   try {
     addLog("📘 نشر الفيديو على فيسبوك...", "processing");
 
-    // Get page ID first
-    const pagesRes = await fetch(`https://graph.facebook.com/me/accounts?access_token=${token}`);
+    // Resolve page ID and token: try /me first, then /me/accounts
     let pageId = "me";
     let pageToken = token;
-    if (pagesRes.ok) {
-      const pages = await pagesRes.json() as { data?: Array<{ id: string; access_token: string }> };
-      if (pages.data?.[0]) {
-        pageId = pages.data[0].id;
-        pageToken = pages.data[0].access_token || token;
+
+    const meRes = await fetch(`https://graph.facebook.com/${FB_VER}/me?fields=id&access_token=${token}`);
+    if (meRes.ok) {
+      const me = await meRes.json() as { id?: string; error?: unknown };
+      if (me.id && !me.error) {
+        pageId = me.id;
+      }
+    }
+
+    // Try to get a page-specific token from /me/accounts (needed for page posts)
+    const accountsRes = await fetch(`https://graph.facebook.com/${FB_VER}/me/accounts?access_token=${token}`);
+    if (accountsRes.ok) {
+      const accounts = await accountsRes.json() as { data?: Array<{ id: string; access_token: string }> };
+      if (accounts.data?.[0]) {
+        pageId = accounts.data[0].id;
+        pageToken = accounts.data[0].access_token || token;
       }
     }
 
@@ -427,7 +454,7 @@ async function publishToFacebook(videoPath: string, description: string, token: 
     formData.append("access_token", pageToken);
     formData.append("source", new Blob([videoBuffer], { type: "video/mp4" }), "video.mp4");
 
-    const res = await fetch(`https://graph.facebook.com/${pageId}/videos`, {
+    const res = await fetch(`https://graph.facebook.com/${FB_VER}/${pageId}/videos`, {
       method: "POST",
       body: formData,
     });

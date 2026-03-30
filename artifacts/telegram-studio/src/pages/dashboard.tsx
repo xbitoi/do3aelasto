@@ -3,7 +3,7 @@ import { useGetSettings, useUpdateSettings, useStartBot, useStopBot, useTestBot,
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Input, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown, RefreshCw, Bot } from "lucide-react";
+import { Play, Square, Activity, Key, Paintbrush, Save, LayoutTemplate, Palette, Mic2, Server, ChevronDown, RefreshCw, Bot, Volume2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting, isStopping }: any) {
@@ -86,7 +86,34 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
   const [tab, setTab] = useState<'text' | 'color' | 'audio'>('text');
   const [models, setModels] = useState<string[]>(DEFAULT_GEMINI_MODELS);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [previewingAudio, setPreviewingAudio] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
+
+  const handleAudioPreview = async () => {
+    if (previewingAudio) {
+      audioRef.current?.pause();
+      setPreviewingAudio(false);
+      return;
+    }
+    setPreviewingAudio(true);
+    try {
+      const voice = settings.ttsVoice || "ar-SA-HamedNeural";
+      const slow = settings.ttsSpeed ? "true" : "false";
+      const url = `/api/tts-preview?voice=${encodeURIComponent(voice)}&slow=${slow}`;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => setPreviewingAudio(false);
+      audio.onerror = () => {
+        setPreviewingAudio(false);
+        toast({ title: "خطأ", description: "تعذّر تحميل معاينة الصوت", variant: "destructive" });
+      };
+      await audio.play();
+    } catch {
+      setPreviewingAudio(false);
+      toast({ title: "خطأ", description: "تعذّر تشغيل معاينة الصوت", variant: "destructive" });
+    }
+  };
 
   const handleFetchModels = async () => {
     const geminiKey = localStorage.getItem('geminiKey') || '';
@@ -257,8 +284,67 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                )}
              </div>
 
-             <div className="pt-3 border-t border-border/50">
+             <div className="pt-3 border-t border-border/50 space-y-4">
                <Switch label="تخفيض سرعة القراءة (لزيادة الوضوح)" checked={settings.ttsSpeed} onChange={(v: boolean) => setSettings({...settings, ttsSpeed: v})} />
+             </div>
+
+             {/* Volume controls */}
+             <div className="pt-3 border-t border-border/50 space-y-3">
+               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                 <Volume2 className="w-3.5 h-3.5 text-primary" />
+                 التحكم في مستوى الصوت
+               </p>
+               <Slider
+                 label="صوت الدعاء"
+                 min={50}
+                 max={200}
+                 step={5}
+                 value={settings.duaaVolume ?? 120}
+                 onChange={(v: number) => setSettings({...settings, duaaVolume: v})}
+                 unit="%"
+               />
+               <Slider
+                 label="صوت الفيديو الأصلي"
+                 min={0}
+                 max={150}
+                 step={5}
+                 value={settings.originalVolume ?? 90}
+                 onChange={(v: number) => setSettings({...settings, originalVolume: v})}
+                 unit="%"
+               />
+               <div className="text-[11px] text-muted-foreground/60 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
+                 الدعاء: <span className="text-primary font-bold">{settings.duaaVolume ?? 120}%</span>
+                 &nbsp;·&nbsp; الأصلي: <span className="text-foreground/70 font-bold">{settings.originalVolume ?? 90}%</span>
+                 &nbsp;·&nbsp; الفرق: <span className="text-green-400 font-bold">+{(settings.duaaVolume ?? 120) - (settings.originalVolume ?? 90)}%</span>
+               </div>
+             </div>
+
+             {/* Audio preview button */}
+             <div className="pt-3 border-t border-border/50">
+               <button
+                 onClick={handleAudioPreview}
+                 className={cn(
+                   "flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-bold text-sm border transition-all",
+                   previewingAudio
+                     ? "bg-primary/20 border-primary text-primary shadow-[0_0_16px_rgba(99,102,241,0.3)]"
+                     : "bg-black/30 border-border/50 text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                 )}
+               >
+                 {previewingAudio ? (
+                   <>
+                     <Loader2 className="w-4 h-4 animate-spin" />
+                     يتم التشغيل... (اضغط للإيقاف)
+                   </>
+                 ) : (
+                   <>
+                     <Volume2 className="w-4 h-4" />
+                     معاينة صوت الدعاء
+                   </>
+                 )}
+               </button>
+               <p className="text-[10px] text-muted-foreground/50 text-center mt-1.5">
+                 يُشغّل نموذج صوتي قصير بالصوت والسرعة المحددة
+               </p>
              </div>
            </div>
         )}

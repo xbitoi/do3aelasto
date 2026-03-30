@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import fs from "fs";
 import {
   startBot,
   stopBot,
@@ -8,6 +9,7 @@ import {
   updateSettings,
   defaultSettings,
   getAvailableGeminiModels,
+  generateTTSPreview,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -61,6 +63,27 @@ router.get("/settings", (_req, res) => {
 router.put("/settings", (req, res) => {
   const updated = updateSettings(req.body);
   res.json(updated);
+});
+
+router.get("/tts-preview", async (req, res) => {
+  const voice = (req.query.voice as string) || "ar-SA-HamedNeural";
+  const slow = req.query.slow === "true";
+  try {
+    const audioPath = await generateTTSPreview(voice, slow);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "no-cache");
+    const stream = fs.createReadStream(audioPath);
+    stream.pipe(res);
+    stream.on("end", () => {
+      try { fs.unlinkSync(audioPath); } catch {}
+    });
+    stream.on("error", () => {
+      try { fs.unlinkSync(audioPath); } catch {}
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
 });
 
 export default router;

@@ -53,7 +53,7 @@ export const defaultSettings: AppSettings = {
   bgOpacity: 40,
   showBackground: true,
   geminiModel: "auto",
-  originalVolume: 60,
+  originalVolume: 90,
   duaaVolume: 120,
 };
 
@@ -1058,4 +1058,32 @@ export function updateSettings(settings: Partial<AppSettings>) {
   currentSettings = { ...currentSettings, ...settings };
   saveSettingsToDisk(currentSettings);
   return currentSettings;
+}
+
+export async function generateTTSPreview(voice: string, slow: boolean): Promise<string> {
+  const sampleText = "اللَّهُمَّ إِنَّا نَسْأَلُكَ رَحْمَتَكَ";
+  const tmpPath = path.join(os.tmpdir(), `tts-preview-${Date.now()}.mp3`);
+  const rawPath = tmpPath.replace(".mp3", "_raw.mp3");
+  const txtFile = rawPath + ".txt";
+  fs.writeFileSync(txtFile, sampleText, "utf8");
+  try {
+    await execAsync(
+      `python3 -c "
+import asyncio, edge_tts
+async def run():
+    with open(${JSON.stringify(txtFile)}, encoding='utf-8') as f:
+        txt = f.read()
+    rate = '-10%' if ${slow ? "True" : "False"} else '+0%'
+    com = edge_tts.Communicate(txt, ${JSON.stringify(voice)}, rate=rate)
+    await com.save(${JSON.stringify(rawPath)})
+asyncio.run(run())
+"`,
+      { timeout: 30000 }
+    );
+    fs.renameSync(rawPath, tmpPath);
+  } finally {
+    try { fs.unlinkSync(txtFile); } catch {}
+    try { fs.unlinkSync(rawPath); } catch {}
+  }
+  return tmpPath;
 }

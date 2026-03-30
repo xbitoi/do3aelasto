@@ -1,5 +1,6 @@
 import TelegramBot from "node-telegram-bot-api";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { exec, execSync } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
@@ -55,6 +56,7 @@ let botUsername = "";
 let processedCount = 0;
 let startTime: number | null = null;
 let geminiKeyStore = "";
+let groqKeyStore = "";
 let logs: LogEntry[] = [];
 
 export function addLog(message: string, level: LogLevel = "info") {
@@ -97,7 +99,7 @@ export async function testBotToken(token: string) {
   return { success: false, error: data.description || "توكن غير صالح" };
 }
 
-export async function startBot(geminiKey: string, botToken: string, settings: AppSettings) {
+export async function startBot(geminiKey: string, botToken: string, settings: AppSettings, groqKey = "") {
   if (botRunning) {
     return { success: false, message: "البوت يعمل بالفعل" };
   }
@@ -108,6 +110,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   }
 
   geminiKeyStore = geminiKey;
+  groqKeyStore = groqKey;
   botName = test.botName || "";
   botUsername = test.botUsername || "";
   processedCount = 0;
@@ -218,7 +221,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     );
 
     addLog("🤖 توليد الدعاء بالذكاء الاصطناعي...", "processing");
-    const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle);
+    const duaaText = await generateDuaa(geminiKeyStore, actualDuration, settings.duaaStyle, groqKeyStore);
     addLog(`✅ الدعاء: ${duaaText.slice(0, 40)}...`, "success");
 
     await botInstance!.editMessageText(
@@ -286,11 +289,14 @@ async function downloadFile(url: string, dest: string) {
 /** Fetch available Gemini models that support generateContent, ordered by preference */
 async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
   const preferredOrder = [
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
-    "gemini-1.5-pro",
     "gemini-1.0-pro",
     "gemini-pro",
   ];
@@ -321,7 +327,42 @@ async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
   }
 }
 
-async function generateDuaa(geminiKey: string, videoDuration: number, style: string): Promise<string> {
+async function generateDuaaWithGroq(groqKey: string, minWords: number, maxWords: number, styleDesc: string, prompt: string): Promise<string> {
+  const groq = new Groq({ apiKey: groqKey });
+  addLog("🤖 محاولة Groq (llama-3.3-70b)...", "processing");
+
+  const models = ["llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768"];
+  let lastErr: unknown;
+  for (const model of models) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.9,
+        max_tokens: 600,
+      });
+      let text = (completion.choices[0]?.message?.content || "").trim();
+      const allLines = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+      text = allLines.join(" ").trim();
+      text = text.replace(/^["'«»\-–—*]+|["'«»\-–—*]+$/g, "").trim();
+      const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
+      addLog(`📊 Groq - عدد الكلمات: ${wordCount}`, "info");
+      if (wordCount >= minWords) {
+        addLog(`✅ نجح Groq: ${model}`, "success");
+        return text;
+      }
+      addLog(`⚠️ Groq ${model} أعطى ${wordCount} كلمة فقط، المحاولة التالية...`, "warning");
+      lastErr = new Error(`قصير: ${wordCount} كلمة`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`⚠️ فشل Groq ${model}: ${msg.slice(0, 60)}`, "warning");
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("فشلت جميع نماذج Groq");
+}
+
+async function generateDuaa(geminiKey: string, videoDuration: number, style: string, groqKey = ""): Promise<string> {
   // Arabic TTS with tashkeel reads ~1.5 words/second
   // Minimum 15 words, scale up with duration
   const minWords = 15;
@@ -398,8 +439,19 @@ async function generateDuaa(geminiKey: string, videoDuration: number, style: str
     }
   }
 
+  // Fallback to Groq if available
+  if (groqKey) {
+    addLog("🔄 الانتقال إلى Groq كاحتياطي...", "processing");
+    try {
+      return await generateDuaaWithGroq(groqKey, minWords, maxWords, styleDesc, prompt);
+    } catch (groqErr) {
+      const msg = groqErr instanceof Error ? groqErr.message : String(groqErr);
+      addLog(`❌ فشل Groq أيضاً: ${msg.slice(0, 80)}`, "error");
+    }
+  }
+
   throw new Error(
-    `فشلت جميع نماذج Gemini المتاحة. آخر خطأ: ${lastError instanceof Error ? lastError.message.slice(0, 150) : String(lastError)}`
+    `فشلت جميع نماذج Gemini والـ Groq. آخر خطأ: ${lastError instanceof Error ? lastError.message.slice(0, 150) : String(lastError)}`
   );
 }
 

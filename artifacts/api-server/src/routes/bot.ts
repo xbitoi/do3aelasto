@@ -12,7 +12,7 @@ import {
 const router: IRouter = Router();
 
 router.post("/bot/start", async (req, res) => {
-  const { geminiKey, botToken } = req.body as { geminiKey: string; botToken: string };
+  const { geminiKey, botToken, groqKey } = req.body as { geminiKey: string; botToken: string; groqKey?: string };
 
   if (!geminiKey || !botToken) {
     res.status(400).json({ error: "مفتاح Gemini وتوكن البوت مطلوبان" });
@@ -20,7 +20,7 @@ router.post("/bot/start", async (req, res) => {
   }
 
   const settings = getSettings();
-  const result = await startBot(geminiKey, botToken, settings);
+  const result = await startBot(geminiKey, botToken, settings, groqKey || "");
   res.json(result);
 });
 

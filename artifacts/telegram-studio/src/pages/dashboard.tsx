@@ -8,12 +8,14 @@ import { cn } from "@/lib/utils";
 
 function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting, isStopping }: any) {
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || '');
+  const [groqKey, setGroqKey] = useState(localStorage.getItem('groqKey') || '');
   const [botToken, setBotToken] = useState(localStorage.getItem('botToken') || '');
 
   useEffect(() => {
     localStorage.setItem('geminiKey', geminiKey);
+    localStorage.setItem('groqKey', groqKey);
     localStorage.setItem('botToken', botToken);
-  }, [geminiKey, botToken]);
+  }, [geminiKey, groqKey, botToken]);
 
   return (
     <PremiumCard title="مفاتيح API والتحكم" icon={Key}>
@@ -23,6 +25,13 @@ function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting
           <Input type="password" placeholder="AIzaSy..." value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} />
         </div>
         <div className="space-y-3">
+          <label className="text-sm font-bold text-foreground/90 ml-1 block">
+            مفتاح Groq AI
+            <span className="text-xs text-muted-foreground font-normal mr-2">(احتياطي عند فشل Gemini)</span>
+          </label>
+          <Input type="password" placeholder="gsk_..." value={groqKey} onChange={(e) => setGroqKey(e.target.value)} />
+        </div>
+        <div className="space-y-3">
           <label className="text-sm font-bold text-foreground/90 ml-1 block">توكن بوت تيليغرام</label>
           <Input type="password" placeholder="123456789:AA..." value={botToken} onChange={(e) => setBotToken(e.target.value)} />
         </div>
@@ -30,7 +39,7 @@ function ApiKeysCard({ isRunning, onStart, onStop, onTest, isTesting, isStarting
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         <PremiumButton 
-          onClick={() => onStart(geminiKey, botToken)} 
+          onClick={() => onStart(geminiKey, botToken, groqKey)} 
           disabled={isRunning}
           isLoading={isStarting}
         >
@@ -285,12 +294,12 @@ export function Dashboard() {
 
   const isRunning = status?.running || false;
 
-  const handleStart = (geminiKey: string, botToken: string) => {
+  const handleStart = (geminiKey: string, botToken: string, groqKey?: string) => {
     if (!geminiKey || !botToken) {
       toast({ title: "تنبيه", description: "الرجاء إدخال المفاتيح أولاً في لوحة التحكم", variant: "destructive" });
       return;
     }
-    startBot({ data: { geminiKey, botToken } }, {
+    startBot({ data: { geminiKey, botToken, groqKey: groqKey || "" } }, {
       onSuccess: (res) => {
         if (res.success) {
           toast({ title: "نجاح التشغيل", description: res.message });

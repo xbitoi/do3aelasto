@@ -1,9 +1,29 @@
 import asyncio
 import os
+import random
 import sys
 import tempfile
 from pathlib import Path
 from typing import List, Tuple
+
+
+TRANSITION_DURATION = 0.7
+
+
+async def merge_and_process_videos(
+    video_paths: List[str],
+    audio_path: str,
+    duaa_text: str,
+    word_timings: List[Tuple[str, float, float]],
+    output_path: str,
+    settings: dict
+):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        _merge_and_process_sync,
+        video_paths, audio_path, duaa_text, word_timings, output_path, settings
+    )
 
 
 async def process_video(
@@ -14,47 +34,268 @@ async def process_video(
     output_path: str,
     settings: dict
 ):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None,
-        _process_video_sync,
-        input_video, audio_path, duaa_text, word_timings, output_path, settings
+    await merge_and_process_videos(
+        [input_video], audio_path, duaa_text, word_timings, output_path, settings
     )
 
 
-def _process_video_sync(
-    input_video: str,
+def _make_crossfade(clip1, clip2, duration=TRANSITION_DURATION):
+    import numpy as np
+    from moviepy.editor import VideoClip
+
+    w, h = clip1.size
+    dur1 = clip1.duration
+    dur2 = clip2.duration
+
+    def make_frame(t):
+        progress = t / duration
+        f1 = clip1.get_frame(dur1 - duration + t)
+        f2 = clip2.get_frame(t)
+        return (f1 * (1 - progress) + f2 * progress).astype('uint8')
+
+    trans_clip = VideoClip(make_frame, duration=duration)
+    trans_clip.size = (w, h)
+    trans_clip = trans_clip.set_fps(clip1.fps)
+    return trans_clip
+
+
+def _make_slide_transition(clip1, clip2, direction='left', duration=TRANSITION_DURATION):
+    import numpy as np
+    from moviepy.editor import VideoClip
+
+    w, h = clip1.size
+    dur1 = clip1.duration
+
+    def make_frame(t):
+        progress = t / duration
+        f1 = clip1.get_frame(dur1 - duration + t)
+        f2 = clip2.get_frame(t)
+
+        frame = np.zeros_like(f1)
+        if direction == 'left':
+            split = int(w * (1 - progress))
+            if split > 0:
+                frame[:, :split] = f1[:, w - split:]
+            if split < w:
+                frame[:, split:] = f2[:, :w - split]
+        elif direction == 'right':
+            split = int(w * progress)
+            if split > 0:
+                frame[:, :split] = f2[:, w - split:]
+            if split < w:
+                frame[:, split:] = f1[:, :w - split]
+        elif direction == 'up':
+            split = int(h * (1 - progress))
+            if split > 0:
+                frame[:split, :] = f1[h - split:, :]
+            if split < h:
+                frame[split:, :] = f2[:h - split, :]
+        elif direction == 'down':
+            split = int(h * progress)
+            if split > 0:
+                frame[:split, :] = f2[h - split:, :]
+            if split < h:
+                frame[split:, :] = f1[:h - split, :]
+        return frame.astype('uint8')
+
+    trans_clip = VideoClip(make_frame, duration=duration)
+    trans_clip.size = (w, h)
+    trans_clip = trans_clip.set_fps(clip1.fps)
+    return trans_clip
+
+
+def _make_fade_black(clip1, clip2, duration=TRANSITION_DURATION):
+    import numpy as np
+    from moviepy.editor import VideoClip
+
+    w, h = clip1.size
+    dur1 = clip1.duration
+    half = duration / 2.0
+
+    def make_frame(t):
+        if t < half:
+            progress = t / half
+            f1 = clip1.get_frame(dur1 - duration + t)
+            return (f1 * (1 - progress)).astype('uint8')
+        else:
+            progress = (t - half) / half
+            f2 = clip2.get_frame(t - half)
+            return (f2 * progress).astype('uint8')
+
+    trans_clip = VideoClip(make_frame, duration=duration)
+    trans_clip.size = (w, h)
+    trans_clip = trans_clip.set_fps(clip1.fps)
+    return trans_clip
+
+
+def _make_zoom_transition(clip1, clip2, duration=TRANSITION_DURATION):
+    import numpy as np
+    from moviepy.editor import VideoClip
+    from PIL import Image
+
+    w, h = clip1.size
+    dur1 = clip1.duration
+
+    def make_frame(t):
+        progress = t / duration
+        f1 = clip1.get_frame(dur1 - duration + t)
+        f2 = clip2.get_frame(t)
+
+        scale = 1.0 + progress * 0.3
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        x_off = (new_w - w) // 2
+        y_off = (new_h - h) // 2
+
+        img1 = Image.fromarray(f1.astype('uint8'))
+        zoomed = img1.resize((new_w, new_h), Image.LANCZOS)
+        zoomed_arr = np.array(zoomed)
+        cropped = zoomed_arr[y_off:y_off + h, x_off:x_off + w]
+
+        alpha = progress
+        blended = (cropped * (1 - alpha) + f2 * alpha).astype('uint8')
+        return blended
+
+    trans_clip = VideoClip(make_frame, duration=duration)
+    trans_clip.size = (w, h)
+    trans_clip = trans_clip.set_fps(clip1.fps)
+    return trans_clip
+
+
+def _make_wipe_transition(clip1, clip2, duration=TRANSITION_DURATION):
+    import numpy as np
+    from moviepy.editor import VideoClip
+
+    w, h = clip1.size
+    dur1 = clip1.duration
+
+    def make_frame(t):
+        progress = t / duration
+        f1 = clip1.get_frame(dur1 - duration + t)
+        f2 = clip2.get_frame(t)
+
+        frame = np.copy(f1)
+        diagonal_pos = int((w + h) * progress)
+
+        for row in range(h):
+            col = diagonal_pos - row
+            col = max(0, min(w, col))
+            if col > 0:
+                frame[row, :col] = f2[row, :col]
+        return frame.astype('uint8')
+
+    trans_clip = VideoClip(make_frame, duration=duration)
+    trans_clip.size = (w, h)
+    trans_clip = trans_clip.set_fps(clip1.fps)
+    return trans_clip
+
+
+TRANSITION_BUILDERS = [
+    lambda c1, c2: _make_crossfade(c1, c2),
+    lambda c1, c2: _make_slide_transition(c1, c2, 'left'),
+    lambda c1, c2: _make_slide_transition(c1, c2, 'right'),
+    lambda c1, c2: _make_slide_transition(c1, c2, 'up'),
+    lambda c1, c2: _make_fade_black(c1, c2),
+    lambda c1, c2: _make_zoom_transition(c1, c2),
+    lambda c1, c2: _make_wipe_transition(c1, c2),
+]
+
+
+def _concatenate_with_transitions(clips):
+    from moviepy.editor import concatenate_videoclips
+
+    if len(clips) == 1:
+        return clips[0]
+
+    used_transitions = []
+    parts = [clips[0].subclip(0, max(0.1, clips[0].duration - TRANSITION_DURATION))]
+
+    for i in range(1, len(clips)):
+        c1 = clips[i - 1]
+        c2 = clips[i]
+
+        if c1.duration <= TRANSITION_DURATION or c2.duration <= TRANSITION_DURATION:
+            parts.append(clips[i])
+            continue
+
+        builder = random.choice(TRANSITION_BUILDERS)
+        trans = builder(c1, c2)
+        used_transitions.append(builder)
+
+        if i < len(clips) - 1:
+            tail = clips[i].subclip(TRANSITION_DURATION, max(TRANSITION_DURATION + 0.1, clips[i].duration - TRANSITION_DURATION))
+        else:
+            tail = clips[i].subclip(TRANSITION_DURATION)
+
+        parts.append(trans)
+        parts.append(tail)
+
+    final = concatenate_videoclips(parts, method="compose")
+    return final
+
+
+def _merge_and_process_sync(
+    video_paths: List[str],
     audio_path: str,
     duaa_text: str,
     word_timings: List[Tuple[str, float, float]],
     output_path: str,
     settings: dict
 ):
-    from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, ImageClip
+    from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, ImageClip, concatenate_videoclips
     from moviepy.video.fx.all import resize
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
     from ai_processor import reshape_arabic
 
-    video = VideoFileClip(input_video)
-    original_audio = video.audio
+    raw_clips = [VideoFileClip(p) for p in video_paths]
+
+    target_w = raw_clips[0].w
+    target_h = raw_clips[0].h
+    target_fps = raw_clips[0].fps
+
+    resized_clips = []
+    for clip in raw_clips:
+        if clip.w != target_w or clip.h != target_h:
+            clip = clip.resize((target_w, target_h))
+        if clip.fps != target_fps:
+            clip = clip.set_fps(target_fps)
+        resized_clips.append(clip)
+
+    if len(resized_clips) > 1:
+        video = _concatenate_with_transitions(resized_clips)
+    else:
+        video = resized_clips[0]
 
     tts_audio = AudioFileClip(audio_path)
     audio_duration = tts_audio.duration
+
+    original_audio = raw_clips[0].audio if raw_clips[0].audio else None
+    if len(raw_clips) > 1:
+        from moviepy.audio.AudioClip import CompositeAudioClip, concatenate_audioclips
+        audio_parts = [c.audio for c in raw_clips if c.audio and c.audio.duration > 0]
+        if audio_parts:
+            original_audio = concatenate_audioclips(audio_parts)
 
     if original_audio and original_audio.duration > 0:
         from moviepy.audio.AudioClip import CompositeAudioClip
         from moviepy.audio.fx.all import volumex
         orig_quieter = original_audio.fx(volumex, 0.3)
-        if orig_quieter.duration > tts_audio.duration:
-            orig_quieter = orig_quieter.subclip(0, tts_audio.duration)
+        if orig_quieter.duration > audio_duration:
+            orig_quieter = orig_quieter.subclip(0, audio_duration)
+        elif orig_quieter.duration < audio_duration:
+            from moviepy.audio.AudioClip import AudioClip
+            import numpy as np
+            loops = int(audio_duration / orig_quieter.duration) + 1
+            from moviepy.editor import concatenate_audioclips
+            orig_quieter = concatenate_audioclips([orig_quieter] * loops).subclip(0, audio_duration)
         combined_audio = CompositeAudioClip([orig_quieter, tts_audio])
         final_audio = combined_audio
     else:
         final_audio = tts_audio
 
-    if video.duration > tts_audio.duration + 0.5:
-        video = video.subclip(0, tts_audio.duration + 0.3)
+    if video.duration > audio_duration + 0.5:
+        video = video.subclip(0, audio_duration + 0.3)
 
     video_with_audio = video.set_audio(final_audio)
 
@@ -116,20 +357,21 @@ def _process_video_sync(
         all_clips = [video_with_audio]
 
     final_video = CompositeVideoClip(all_clips)
-    final_video = final_video.set_duration(min(video.duration, tts_audio.duration + 0.3))
+    final_video = final_video.set_duration(min(video.duration, audio_duration + 0.3))
 
     final_video.write_videofile(
         output_path,
         codec="libx264",
         audio_codec="aac",
-        fps=video.fps,
+        fps=target_fps,
         preset="fast",
         logger=None,
         temp_audiofile=str(Path(output_path).parent / "temp_audio.aac"),
         remove_temp=True
     )
 
-    video.close()
+    for clip in raw_clips:
+        clip.close()
     tts_audio.close()
 
 

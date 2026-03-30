@@ -704,18 +704,50 @@ def _merge_and_process_sync(
         all_clips = [video_with_audio]
 
     final_video = CompositeVideoClip(all_clips)
-    final_video = final_video.set_duration(min(video.duration, audio_duration + 0.3))
+    final_duration = min(video.duration, audio_duration + 0.3)
+    final_video = final_video.set_duration(final_duration)
+
+    MAX_SIZE_BYTES = 47 * 1024 * 1024
+    target_bitrate_kbps = int((MAX_SIZE_BYTES * 8) / max(1, final_duration) / 1024)
+    target_bitrate_kbps = max(500, min(target_bitrate_kbps, 4000))
+    audio_kbps = 128
+    video_kbps = max(300, target_bitrate_kbps - audio_kbps)
+
+    tmp_audio = str(Path(output_path).parent / "temp_audio.aac")
 
     final_video.write_videofile(
         output_path,
         codec="libx264",
         audio_codec="aac",
-        fps=target_fps,
+        fps=min(target_fps, 30),
         preset="fast",
         logger=None,
-        temp_audiofile=str(Path(output_path).parent / "temp_audio.aac"),
-        remove_temp=True
+        temp_audiofile=tmp_audio,
+        remove_temp=True,
+        ffmpeg_params=[
+            "-crf", "26",
+            "-maxrate", f"{video_kbps}k",
+            "-bufsize", f"{video_kbps * 2}k",
+            "-b:a", f"{audio_kbps}k",
+        ]
     )
+
+    file_size = os.path.getsize(output_path)
+    if file_size > MAX_SIZE_BYTES:
+        import subprocess
+        recompressed = output_path.replace(".mp4", "_small.mp4")
+        duration_s = max(1, final_duration)
+        target_total_kbps = int((MAX_SIZE_BYTES * 8) / duration_s / 1024)
+        v_kbps = max(200, target_total_kbps - audio_kbps)
+        subprocess.run([
+            "ffmpeg", "-y", "-i", output_path,
+            "-c:v", "libx264", "-preset", "fast",
+            "-b:v", f"{v_kbps}k",
+            "-c:a", "aac", "-b:a", f"{audio_kbps}k",
+            recompressed
+        ], capture_output=True)
+        if os.path.exists(recompressed) and os.path.getsize(recompressed) > 0:
+            os.replace(recompressed, output_path)
 
     for clip in raw_clips:
         clip.close()

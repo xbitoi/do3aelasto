@@ -136,9 +136,57 @@ def render_sidebar():
         st.caption("💡 اختر 'عشوائي' لتغيير التأثير تلقائياً في كل فيديو")
 
 
+def render_effects_panel():
+    st.markdown('<div class="section-header">✨ تأثيرات الظهور والانتقال</div>', unsafe_allow_html=True)
+
+    col_word, col_trans = st.columns(2)
+
+    word_effect_labels = {
+        "عشوائي 🎲": "random",
+        "تلاشي ناعم": "fade_smooth",
+        "تكبير بوب": "zoom_pop",
+        "ارتداد نابضي": "bounce_spring",
+        "صعود من الأسفل": "slide_up",
+        "نزول من الأعلى": "slide_down",
+        "دخول انسيابي": "swing_right",
+        "وميض متنفس": "glow_pulse",
+        "كشف من اليمين": "reveal_rtl",
+    }
+    transition_labels = {
+        "عشوائي 🎲": "random",
+        "تلاشي متقاطع": "crossfade",
+        "انزلاق لليسار": "slide_left",
+        "انزلاق لليمين": "slide_right",
+        "انزلاق للأعلى": "slide_up",
+        "تلاشي للأسود": "fade_black",
+        "تكبير وتلاشي": "zoom",
+        "مسح قطري": "wipe",
+    }
+
+    with col_word:
+        st.markdown('<p style="color:#a5b4fc; font-size:0.85rem; margin-bottom:4px;">🔤 تأثير ظهور الكلمات</p>', unsafe_allow_html=True)
+        word_names = list(word_effect_labels.keys())
+        current_word = st.session_state.settings.get("word_effect", "random")
+        word_reverse = {v: k for k, v in word_effect_labels.items()}
+        word_idx = word_names.index(word_reverse.get(current_word, "عشوائي 🎲"))
+        selected_word = st.selectbox("تأثير الكلمات", word_names, index=word_idx, key="word_effect_main", label_visibility="collapsed")
+        st.session_state.settings["word_effect"] = word_effect_labels[selected_word]
+
+    with col_trans:
+        st.markdown('<p style="color:#a5b4fc; font-size:0.85rem; margin-bottom:4px;">🎞 تأثير الانتقال بين الفيديوهات</p>', unsafe_allow_html=True)
+        trans_names = list(transition_labels.keys())
+        current_trans = st.session_state.settings.get("transition_effect", "random")
+        trans_reverse = {v: k for k, v in transition_labels.items()}
+        trans_idx = trans_names.index(trans_reverse.get(current_trans, "عشوائي 🎲"))
+        selected_trans = st.selectbox("تأثير الانتقال", trans_names, index=trans_idx, key="trans_effect_main", label_visibility="collapsed")
+        st.session_state.settings["transition_effect"] = transition_labels[selected_trans]
+
+
 def render_main_controls():
     status = "🟢 يعمل" if st.session_state.bot_running else "🔴 متوقف"
     status_class = "status-running" if st.session_state.bot_running else "status-stopped"
+
+    render_effects_panel()
 
     st.markdown(f"""
     <div class="card">

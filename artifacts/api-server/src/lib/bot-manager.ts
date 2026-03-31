@@ -36,6 +36,8 @@ export interface AppSettings {
   geminiModel: string;
   originalVolume: number;
   duaaVolume: number;
+  muteOriginal: boolean;
+  muteDuaa: boolean;
   wordEffect: string;
   transitionEffect: string;
   transitionDuration: number;
@@ -65,6 +67,8 @@ export const defaultSettings: AppSettings = {
   geminiModel: "auto",
   originalVolume: 90,
   duaaVolume: 120,
+  muteOriginal: false,
+  muteDuaa: false,
   wordEffect: "random",
   transitionEffect: "random",
   transitionDuration: 0.5,
@@ -2592,8 +2596,8 @@ async function processVideoWithText(
   let filterComplex: string;
   let audioMap: string;
 
-  const origVol = ((settings.originalVolume ?? 60) / 100).toFixed(3);
-  const duaaVol = ((settings.duaaVolume ?? 120) / 100).toFixed(3);
+  const origVol = (settings.muteOriginal ? 0 : (settings.originalVolume ?? 90) / 100).toFixed(3);
+  const duaaVol = (settings.muteDuaa    ? 0 : (settings.duaaVolume    ?? 120) / 100).toFixed(3);
 
   if (hasAudio) {
     filterComplex = [

@@ -77,6 +77,8 @@ export interface AppSettings {
   geminiModel?: string;
   originalVolume?: number;
   duaaVolume?: number;
+  muteOriginal?: boolean;
+  muteDuaa?: boolean;
   wordEffect?: string;
   transitionEffect?: string;
   transitionDuration?: number;

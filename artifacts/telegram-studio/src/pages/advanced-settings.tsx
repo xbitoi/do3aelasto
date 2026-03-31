@@ -3,7 +3,7 @@ import { useGetSettings, useUpdateSettings } from "@workspace/api-client-react";
 import type { AppSettings } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Slider, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Video, SlidersHorizontal, Key, ChevronDown, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Video, SlidersHorizontal, Key, ChevronDown, Eye, EyeOff, Loader2, CheckCircle2, XCircle, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function KeyInput({ label, placeholder, value, onChange, hint }: { label: string; placeholder: string; value: string; onChange: (v: string) => void; hint?: string }) {
@@ -391,6 +391,77 @@ export function AdvancedSettings() {
           </div>
         </div>
       </div>
+
+      {/* ── Volume Control ── */}
+      <PremiumCard title="التحكم بمستوى الصوت" icon={Volume2}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Original video audio */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-foreground">🎥 صوت الفيديو الأصلي</span>
+              <button
+                onClick={() => handleSettingChange({...settings, muteOriginal: !(settings.muteOriginal ?? false)})}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                  (settings.muteOriginal ?? false)
+                    ? "bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30"
+                    : "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20"
+                )}
+              >
+                {(settings.muteOriginal ?? false)
+                  ? <><VolumeX className="w-3.5 h-3.5" /> مكتوم</>
+                  : <><Volume2 className="w-3.5 h-3.5" /> مفعّل</>
+                }
+              </button>
+            </div>
+            <Slider
+              label=""
+              min={0} max={200} step={5}
+              value={settings.originalVolume ?? 90}
+              onChange={(v: number) => handleSettingChange({...settings, originalVolume: v})}
+              unit="%"
+              disabled={settings.muteOriginal ?? false}
+            />
+            <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
+              النسبة الحالية: <span className="text-primary font-bold">{settings.muteOriginal ? "مكتوم" : `${settings.originalVolume ?? 90}%`}</span>
+              {" · "}100% = الصوت الأصلي · أكثر = تضخيم · أقل = تخفيف
+            </p>
+          </div>
+
+          {/* Duaa TTS audio */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-foreground">🤲 صوت الدعاء (TTS)</span>
+              <button
+                onClick={() => handleSettingChange({...settings, muteDuaa: !(settings.muteDuaa ?? false)})}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                  (settings.muteDuaa ?? false)
+                    ? "bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30"
+                    : "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20"
+                )}
+              >
+                {(settings.muteDuaa ?? false)
+                  ? <><VolumeX className="w-3.5 h-3.5" /> مكتوم</>
+                  : <><Volume2 className="w-3.5 h-3.5" /> مفعّل</>
+                }
+              </button>
+            </div>
+            <Slider
+              label=""
+              min={0} max={300} step={5}
+              value={settings.duaaVolume ?? 120}
+              onChange={(v: number) => handleSettingChange({...settings, duaaVolume: v})}
+              unit="%"
+              disabled={settings.muteDuaa ?? false}
+            />
+            <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
+              النسبة الحالية: <span className="text-primary font-bold">{settings.muteDuaa ? "مكتوم" : `${settings.duaaVolume ?? 120}%`}</span>
+              {" · "}100% = الصوت الطبيعي · أكثر = تقوية صوت الدعاء
+            </p>
+          </div>
+        </div>
+      </PremiumCard>
 
       {/* ── Processing Settings ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

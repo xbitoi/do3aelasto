@@ -3,7 +3,7 @@ import { useGetSettings, useUpdateSettings, useGetBotStatus } from "@workspace/a
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, Loader2, Share2, FileText, Send, MessageCircle, Wifi } from "lucide-react";
+import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, VolumeX, Loader2, Share2, FileText, Send, MessageCircle, Wifi } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function BotStatusMiniCard({ status, onSendWelcome, isSendingWelcome }: { status?: BotStatus; onSendWelcome: () => void; isSendingWelcome: boolean }) {
@@ -411,33 +411,65 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                <Switch label="تخفيض سرعة القراءة (لزيادة الوضوح)" checked={settings.ttsSpeed} onChange={(v: boolean) => setSettings({...settings, ttsSpeed: v})} />
              </div>
 
-             <div className="pt-3 border-t border-border/50 space-y-3">
+             <div className="pt-3 border-t border-border/50 space-y-4">
                <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
                  <Volume2 className="w-3.5 h-3.5 text-primary" />
                  التحكم في مستوى الصوت
                </p>
-               <Slider
-                 label="صوت الدعاء"
-                 min={50}
-                 max={200}
-                 step={5}
-                 value={settings.duaaVolume ?? 120}
-                 onChange={(v: number) => setSettings({...settings, duaaVolume: v})}
-                 unit="%"
-               />
-               <Slider
-                 label="صوت الفيديو الأصلي"
-                 min={0}
-                 max={150}
-                 step={5}
-                 value={settings.originalVolume ?? 90}
-                 onChange={(v: number) => setSettings({...settings, originalVolume: v})}
-                 unit="%"
-               />
+
+               {/* Duaa volume + mute */}
+               <div className="space-y-1.5">
+                 <div className="flex items-center justify-between">
+                   <span className="text-xs text-foreground/60">🤲 صوت الدعاء</span>
+                   <button
+                     onClick={() => setSettings({...settings, muteDuaa: !(settings.muteDuaa ?? false)})}
+                     className={cn(
+                       "flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold transition-all border",
+                       (settings.muteDuaa ?? false)
+                         ? "bg-red-500/20 border-red-500/40 text-red-400"
+                         : "bg-black/30 border-border/40 text-muted-foreground hover:text-foreground"
+                     )}
+                   >
+                     {(settings.muteDuaa ?? false) ? <><VolumeX className="w-3 h-3" /> مكتوم</> : <><Volume2 className="w-3 h-3" /> كتم</>}
+                   </button>
+                 </div>
+                 <Slider
+                   label=""
+                   min={0} max={300} step={5}
+                   value={settings.duaaVolume ?? 120}
+                   onChange={(v: number) => setSettings({...settings, duaaVolume: v})}
+                   unit="%" disabled={settings.muteDuaa ?? false}
+                 />
+               </div>
+
+               {/* Original video volume + mute */}
+               <div className="space-y-1.5">
+                 <div className="flex items-center justify-between">
+                   <span className="text-xs text-foreground/60">🎥 صوت الفيديو الأصلي</span>
+                   <button
+                     onClick={() => setSettings({...settings, muteOriginal: !(settings.muteOriginal ?? false)})}
+                     className={cn(
+                       "flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold transition-all border",
+                       (settings.muteOriginal ?? false)
+                         ? "bg-red-500/20 border-red-500/40 text-red-400"
+                         : "bg-black/30 border-border/40 text-muted-foreground hover:text-foreground"
+                     )}
+                   >
+                     {(settings.muteOriginal ?? false) ? <><VolumeX className="w-3 h-3" /> مكتوم</> : <><Volume2 className="w-3 h-3" /> كتم</>}
+                   </button>
+                 </div>
+                 <Slider
+                   label=""
+                   min={0} max={200} step={5}
+                   value={settings.originalVolume ?? 90}
+                   onChange={(v: number) => setSettings({...settings, originalVolume: v})}
+                   unit="%" disabled={settings.muteOriginal ?? false}
+                 />
+               </div>
+
                <div className="text-[11px] text-muted-foreground/60 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
-                 الدعاء: <span className="text-primary font-bold">{settings.duaaVolume ?? 120}%</span>
-                 &nbsp;·&nbsp; الأصلي: <span className="text-foreground/70 font-bold">{settings.originalVolume ?? 90}%</span>
-                 &nbsp;·&nbsp; الفرق: <span className="text-green-400 font-bold">+{(settings.duaaVolume ?? 120) - (settings.originalVolume ?? 90)}%</span>
+                 الدعاء: <span className="text-primary font-bold">{(settings.muteDuaa ?? false) ? "مكتوم" : `${settings.duaaVolume ?? 120}%`}</span>
+                 &nbsp;·&nbsp; الأصلي: <span className="text-foreground/70 font-bold">{(settings.muteOriginal ?? false) ? "مكتوم" : `${settings.originalVolume ?? 90}%`}</span>
                </div>
              </div>
 

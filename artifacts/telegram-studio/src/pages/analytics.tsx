@@ -3,7 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Youtube, Facebook, Bot, RefreshCw, TrendingUp, Eye, ThumbsUp,
   MessageCircle, Share2, Users, Video, BarChart2, AlertCircle,
-  Link2, Play, Calendar, Zap, Globe, Loader2, DollarSign, BadgeDollarSign
+  Link2, Play, Calendar, Zap, Globe, Loader2, DollarSign, BadgeDollarSign, Info
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +22,8 @@ interface FBData { platform:"facebook"; page:FBPage; insights:FBInsights; earnin
 
 interface TTUser { username:string; displayName:string; avatar:string; profileUrl:string; followersCount:number; followingCount:number; likesCount:number; videoCount:number; }
 interface TTVideo { id:string; title:string; cover:string; shareUrl:string; views:number; likes:number; comments:number; shares:number; createdAt:string; duration:number; }
-interface TTData { platform:"tiktok"; user:TTUser; videos:TTVideo[]; fetchedAt:number; error?:string; }
+interface TTEarnings { est10dLow:number; est10dHigh:number; totalViews:number; currency:string; }
+interface TTData { platform:"tiktok"; user:TTUser; videos:TTVideo[]; earnings?:TTEarnings; fetchedAt:number; error?:string; }
 
 interface BotData { platform:"bot"; summary:any; connected:{youtube:boolean;facebook:boolean;tiktok:boolean;}; fetchedAt:number; }
 
@@ -124,6 +125,55 @@ function fmtUSD(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+// ─── Compact Earnings Bar (shared across all platforms) ───────────────────────
+
+interface EarningsItem { label: string; low: number; high: number; real?: number | null; }
+
+function EarningsBar({ items, note, accent = "yellow" }: {
+  items: EarningsItem[];
+  note: string;
+  accent?: "yellow" | "green" | "pink";
+}) {
+  const colors = {
+    yellow: { border: "border-yellow-500/20", bg: "bg-yellow-500/6", icon: "text-yellow-400", val: "text-yellow-400", realBg: "bg-green-500/10 border-green-500/20" },
+    green:  { border: "border-green-500/20",  bg: "bg-green-500/6",  icon: "text-green-400",  val: "text-green-400",  realBg: "bg-green-500/10 border-green-500/20" },
+    pink:   { border: "border-pink-500/20",   bg: "bg-pink-500/6",   icon: "text-pink-400",   val: "text-pink-400",   realBg: "bg-green-500/10 border-green-500/20" },
+  }[accent];
+
+  return (
+    <div className={cn("rounded-2xl border px-4 py-3", colors.border, colors.bg)}>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <DollarSign className={cn("w-3.5 h-3.5 shrink-0", colors.icon)} />
+        <span className={cn("text-[11px] font-black uppercase tracking-wider", colors.icon)}>الأرباح التقديرية</span>
+      </div>
+
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[11px] text-muted-foreground font-medium shrink-0">{item.label}:</span>
+            {item.real != null && item.real > 0 ? (
+              <span className={cn("text-sm font-black text-green-400 flex items-center gap-1")}>
+                <BadgeDollarSign className="w-3 h-3 shrink-0" />
+                {fmtUSD(item.real)}
+                <span className="text-[10px] font-normal text-green-400/60">(حقيقي)</span>
+              </span>
+            ) : (
+              <span className={cn("text-sm font-black", colors.val)}>
+                {fmtUSD(item.low)} – {fmtUSD(item.high)}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/40 mt-2 leading-tight flex items-start gap-1">
+        <Info className="w-2.5 h-2.5 shrink-0 mt-0.5 opacity-60" />
+        {note}
+      </p>
+    </div>
+  );
+}
+
 function YouTubeAnalytics({ data }: { data: YTData }) {
   const { channel, videos, earnings } = data;
   const totalVideoViews = videos.reduce((s, v) => s + v.views, 0);
@@ -151,53 +201,16 @@ function YouTubeAnalytics({ data }: { data: YTData }) {
         </div>
       </div>
 
-      {/* Earnings */}
+      {/* Earnings – compact bar */}
       {earnings && (
-        <div className="relative rounded-[2rem] bg-gradient-to-br from-yellow-950/40 to-card border border-yellow-500/20 overflow-hidden">
-          <div className="absolute inset-0 opacity-5">
-            <div className="absolute top-0 left-0 w-64 h-64 bg-yellow-500 rounded-full blur-3xl" />
-          </div>
-          <div className="relative z-10 px-6 py-5 border-b border-yellow-500/20 flex items-center gap-3">
-            <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-              <DollarSign className="w-4 h-4 text-yellow-400" />
-            </div>
-            <h4 className="font-black text-foreground text-lg">الأرباح التقديرية</h4>
-          </div>
-          <div className="relative z-10 p-6 space-y-4">
-            {earnings.realRevenue30d !== null && earnings.realRevenue30d > 0 && (
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-green-500/10 border border-green-500/20">
-                <div className="flex items-center gap-3">
-                  <BadgeDollarSign className="w-5 h-5 text-green-400" />
-                  <div>
-                    <p className="text-xs text-muted-foreground font-semibold">أرباح آخر 30 يوم (حقيقية)</p>
-                    <p className="text-xs text-green-400/70 mt-0.5">من YouTube Analytics</p>
-                  </div>
-                </div>
-                <span className="text-xl font-black text-green-400">{fmtUSD(earnings.realRevenue30d)}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
-                <p className="text-xs text-muted-foreground font-semibold mb-1">الأرباح الكلية التقديرية</p>
-                <p className="text-xs text-yellow-400/60 mb-2">بناءً على إجمالي {fmtNum(channel.viewCount)} مشاهدة</p>
-                <p className="text-lg font-black text-yellow-400">
-                  {fmtUSD(earnings.estTotalLow)} – {fmtUSD(earnings.estTotalHigh)}
-                </p>
-              </div>
-              <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
-                <p className="text-xs text-muted-foreground font-semibold mb-1">أرباح آخر 10 فيديوهات (تقديرية)</p>
-                <p className="text-xs text-yellow-400/60 mb-2">بناءً على {fmtNum(totalVideoViews)} مشاهدة</p>
-                <p className="text-lg font-black text-yellow-400">
-                  {fmtUSD(earnings.est30dLow)} – {fmtUSD(earnings.est30dHigh)}
-                </p>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground/50 text-center">
-              * الأرباح التقديرية محسوبة بناءً على متوسط RPM ($0.5–$3 لكل 1000 مشاهدة). الأرقام الحقيقية تختلف حسب المنطقة والجمهور والإعلانات.
-            </p>
-          </div>
-        </div>
+        <EarningsBar
+          accent="yellow"
+          items={[
+            { label: "آخر 30 يوم", low: earnings.est30dLow, high: earnings.est30dHigh, real: earnings.realRevenue30d },
+            { label: "إجمالي القناة", low: earnings.estTotalLow, high: earnings.estTotalHigh },
+          ]}
+          note={`RPM تقديري $0.5–$3 / 1000 مشاهدة · بناءً على ${fmtNum(channel.viewCount)} مشاهدة إجمالية`}
+        />
       )}
 
       {/* Channel Stats */}
@@ -278,35 +291,15 @@ function FacebookAnalytics({ data }: { data: FBData }) {
         </div>
       </div>
 
-      {/* Earnings */}
+      {/* Earnings – compact bar */}
       {earnings && (earnings.estMonthlyLow > 0 || earnings.estMonthlyHigh > 0) && (
-        <div className="relative rounded-[2rem] bg-gradient-to-br from-yellow-950/40 to-card border border-yellow-500/20 overflow-hidden">
-          <div className="absolute inset-0 opacity-5">
-            <div className="absolute top-0 left-0 w-64 h-64 bg-yellow-500 rounded-full blur-3xl" />
-          </div>
-          <div className="relative z-10 px-6 py-5 border-b border-yellow-500/20 flex items-center gap-3">
-            <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
-              <DollarSign className="w-4 h-4 text-yellow-400" />
-            </div>
-            <h4 className="font-black text-foreground text-lg">الأرباح التقديرية الشهرية</h4>
-          </div>
-          <div className="relative z-10 p-6 space-y-4">
-            <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-foreground">تقدير الأرباح الشهرية</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  بناءً على {fmtNum(insights.weeklyImpressions * 4)} انطباع شهري تقديري
-                </p>
-              </div>
-              <span className="text-xl font-black text-yellow-400">
-                {fmtUSD(earnings.estMonthlyLow)} – {fmtUSD(earnings.estMonthlyHigh)}
-              </span>
-            </div>
-            <p className="text-[11px] text-muted-foreground/50 text-center">
-              * محسوب بناءً على متوسط CPM ($0.5–$2 لكل 1000 انطباع). الأرقام الفعلية تختلف حسب نوع المحتوى وسياسات التحقيق.
-            </p>
-          </div>
-        </div>
+        <EarningsBar
+          accent="yellow"
+          items={[
+            { label: "شهرياً (تقديري)", low: earnings.estMonthlyLow, high: earnings.estMonthlyHigh },
+          ]}
+          note={`CPM تقديري $0.5–$2 / 1000 انطباع · بناءً على ${fmtNum(insights.weeklyImpressions * 4)} انطباع شهري`}
+        />
       )}
 
       {/* Page Stats */}
@@ -370,7 +363,7 @@ function FacebookAnalytics({ data }: { data: FBData }) {
 // ─── TikTok Tab ───────────────────────────────────────────────────────────────
 
 function TikTokAnalytics({ data }: { data: TTData }) {
-  const { user, videos } = data;
+  const { user, videos, earnings } = data;
   const totalViews = videos.reduce((s, v) => s + v.views, 0);
   const totalLikes = videos.reduce((s, v) => s + v.likes, 0);
 
@@ -397,6 +390,17 @@ function TikTokAnalytics({ data }: { data: TTData }) {
           </div>
         </div>
       </div>
+
+      {/* Earnings – compact bar */}
+      {earnings && (
+        <EarningsBar
+          accent="pink"
+          items={[
+            { label: "آخر 10 فيديوهات", low: earnings.est10dLow, high: earnings.est10dHigh },
+          ]}
+          note={`Creator Fund تقديري $0.02–$0.1 / 1000 مشاهدة · بناءً على ${fmtNum(earnings.totalViews)} مشاهدة`}
+        />
+      )}
 
       {/* Profile Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

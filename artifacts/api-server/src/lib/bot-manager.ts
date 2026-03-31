@@ -929,6 +929,10 @@ export async function fetchTikTokAnalytics() {
       duration: v.duration,
     }));
 
+    const ttTotalViews = videos.reduce((s: number, v: any) => s + v.views, 0);
+    const ttEstLow  = parseFloat(((ttTotalViews / 1000) * 0.02).toFixed(2));
+    const ttEstHigh = parseFloat(((ttTotalViews / 1000) * 0.1).toFixed(2));
+
     return {
       platform: "tiktok",
       user: {
@@ -942,6 +946,12 @@ export async function fetchTikTokAnalytics() {
         videoCount: user.video_count ?? 0,
       },
       videos,
+      earnings: {
+        est10dLow: ttEstLow,
+        est10dHigh: ttEstHigh,
+        totalViews: ttTotalViews,
+        currency: "USD",
+      },
       fetchedAt: Date.now(),
     };
   } catch (err) {

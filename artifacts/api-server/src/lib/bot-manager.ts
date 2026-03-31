@@ -721,7 +721,7 @@ export async function fetchYouTubeAnalytics() {
     // 3. Recent videos via search
     const searchRes = await fetch(
       `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&order=date&maxResults=10`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } }
     );
     const searchData = await searchRes.json() as any;
     const videoIds: string[] = (searchData.items ?? []).map((v: any) => v.id?.videoId).filter(Boolean);
@@ -731,7 +731,7 @@ export async function fetchYouTubeAnalytics() {
     if (videoIds.length > 0) {
       const vidRes = await fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(",")}&maxResults=10`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } }
       );
       const vidData = await vidRes.json() as any;
       videos = (vidData.items ?? []).map((v: any) => ({

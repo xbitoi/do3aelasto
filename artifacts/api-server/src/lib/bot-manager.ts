@@ -775,7 +775,9 @@ async function reencodeHighQuality(inputPath: string, outputPath: string): Promi
   await execAsync(cmd, { timeout: 600000 });
 }
 
-async function handlePublish(chatId: number, settings: AppSettings) {
+type PlatformFilter = "youtube" | "facebook" | "tiktok";
+
+async function handlePublish(chatId: number, settings: AppSettings, platformFilter?: PlatformFilter[]) {
   const last = loadLastVideo();
   if (!last) {
     await botInstance!.sendMessage(
@@ -786,16 +788,31 @@ async function handlePublish(chatId: number, settings: AppSettings) {
     return;
   }
 
-  const hasYT = Boolean(settings.youtubeToken && settings.youtubeClientId && settings.youtubeClientSecret);
-  const hasFB = Boolean(settings.facebookToken);
-  const hasTT = Boolean(settings.tiktokToken);
+  const wantYT = !platformFilter || platformFilter.includes("youtube");
+  const wantFB = !platformFilter || platformFilter.includes("facebook");
+  const wantTT = !platformFilter || platformFilter.includes("tiktok");
+
+  const hasYT = wantYT && Boolean(settings.youtubeToken && settings.youtubeClientId && settings.youtubeClientSecret);
+  const hasFB = wantFB && Boolean(settings.facebookToken);
+  const hasTT = wantTT && Boolean(settings.tiktokToken);
 
   if (!hasYT && !hasFB && !hasTT) {
-    await botInstance!.sendMessage(
-      chatId,
-      "⚠️ *لم تُضف مفاتيح منصات التواصل!*\n\nأضف مفاتيح يوتيوب أو فيسبوك أو تيك توك من لوحة التحكم.",
-      { parse_mode: "Markdown" }
-    );
+    if (platformFilter) {
+      const names = platformFilter.map(p =>
+        p === "youtube" ? "يوتيوب" : p === "facebook" ? "فيسبوك" : "تيك توك"
+      ).join(" و");
+      await botInstance!.sendMessage(
+        chatId,
+        `⚠️ *لم تُضف مفاتيح ${names}!*\n\nأضفها من لوحة التحكم ثم حاول مجدداً.`,
+        { parse_mode: "Markdown" }
+      );
+    } else {
+      await botInstance!.sendMessage(
+        chatId,
+        "⚠️ *لم تُضف مفاتيح منصات التواصل!*\n\nأضف مفاتيح يوتيوب أو فيسبوك أو تيك توك من لوحة التحكم.",
+        { parse_mode: "Markdown" }
+      );
+    }
     return;
   }
 
@@ -1158,16 +1175,34 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     }
 
     // ── أمر النشر ───────────────────────────────────────────────
-    const publishKeywords = [
-      "نشر", "انشر", "أنشر", "انشر الفيديو", "نشر الفيديو", "نشر الان",
-      "نشر الآن", "انشر الان", "انشر الآن", "ارسل", "أرسل", "ارفع",
-      "أرفع", "ارفع الفيديو", "ارسل الفيديو", "نشر المقطع", "انشر المقطع",
-      "اريد النشر", "أريد النشر", "نشر على المنصات", "انشر على المنصات",
+    const publishTriggers = [
+      "نشر", "انشر", "أنشر", "نشر الفيديو", "انشر الفيديو",
+      "نشر الان", "نشر الآن", "انشر الان", "انشر الآن",
+      "ارفع", "أرفع", "ارفع الفيديو", "ارسل الفيديو",
+      "نشر المقطع", "انشر المقطع",
+      "اريد النشر", "أريد النشر",
+      "نشر على المنصات", "انشر على المنصات",
       "نشر على القنوات", "انشر على القنوات", "نشر القنوات",
       "publish", "post", "upload",
     ];
-    if (publishKeywords.some(kw => text === kw || text.startsWith(kw + " ") || text.endsWith(" " + kw))) {
-      await handlePublish(chatId, getSettings());
+    const isPublishCmd = publishTriggers.some(kw =>
+      text === kw || text.startsWith(kw + " ") || text.includes(" " + kw + " ") || text.endsWith(" " + kw)
+    );
+    if (isPublishCmd) {
+      // كشف المنصة المذكورة في الرسالة
+      const mentionsYT  = /يوتيوب|يوتيوب|youtube|yt/i.test(text);
+      const mentionsFB  = /فيسبوك|فيس بوك|facebook|fb/i.test(text);
+      const mentionsTT  = /تيك توك|تيك\s*توك|tiktok|tt/i.test(text);
+
+      let filter: PlatformFilter[] | undefined;
+      if (mentionsYT || mentionsFB || mentionsTT) {
+        filter = [];
+        if (mentionsYT) filter.push("youtube");
+        if (mentionsFB) filter.push("facebook");
+        if (mentionsTT) filter.push("tiktok");
+      }
+
+      await handlePublish(chatId, getSettings(), filter);
       return;
     }
 

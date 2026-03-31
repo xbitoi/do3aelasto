@@ -93,6 +93,9 @@ let groqKeyStore = "";
 let logs: LogEntry[] = [];
 const chatSessions = new Map<number, ChatSession>();
 
+// ── Pending video choice (waiting for user to pick 1 or 2) ───────────────
+const pendingVideoChoices = new Map<number, TelegramBot.Message>();
+
 // ── Last published video (for "نشر" command) ──────────────────────────────
 const LAST_VIDEO_FILE = path.join(process.cwd(), "last-video.json");
 const LAST_VIDEO_PATH = path.join(process.cwd(), "last-video.mp4");
@@ -1031,13 +1034,23 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     );
   });
 
+  const showVideoChoiceMenu = async (msg: TelegramBot.Message) => {
+    const chatId = msg.chat.id;
+    pendingVideoChoices.set(chatId, msg);
+    await botInstance!.sendMessage(
+      chatId,
+      `📹 *استُقبل الفيديو!*\n\nماذا تريد أن أفعل به؟\n\n*1️⃣* — نشر مباشرةً على القنوات\n*2️⃣* — إضافة الدعاء على الفيديو\n*3️⃣* — إلغاء\n\n_أرسل الرقم للتأكيد_`,
+      { parse_mode: "Markdown" }
+    );
+  };
+
   botInstance.on("video", async (msg) => {
     trackChat(msg.chat.id);
     const session = chatSessions.get(msg.chat.id);
     if (session) {
       await addVideoToSession(msg, session);
     } else {
-      await handleVideo(msg, getSettings());
+      await showVideoChoiceMenu(msg);
     }
   });
 
@@ -1048,7 +1061,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
       if (session) {
         await addVideoToSession(msg, session);
       } else {
-        await handleVideo(msg, getSettings());
+        await showVideoChoiceMenu(msg);
       }
     } else {
       await botInstance!.sendMessage(
@@ -1066,6 +1079,34 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     trackChat(chatId);
     const text = msg.text.trim();
     if (text.startsWith("/")) return;
+
+    // ── معالجة اختيار الفيديو (1 / 2 / 3) ───────────────────────
+    if (pendingVideoChoices.has(chatId)) {
+      const pendingMsg = pendingVideoChoices.get(chatId)!;
+      if (text === "1") {
+        pendingVideoChoices.delete(chatId);
+        await botInstance!.sendMessage(chatId, "📡 *جاري النشر على القنوات...*", { parse_mode: "Markdown" });
+        await handlePublish(chatId, getSettings());
+        return;
+      }
+      if (text === "2") {
+        pendingVideoChoices.delete(chatId);
+        await handleVideo(pendingMsg, getSettings());
+        return;
+      }
+      if (text === "3" || text === "إلغاء" || text === "الغ" || text === "cancel") {
+        pendingVideoChoices.delete(chatId);
+        await botInstance!.sendMessage(chatId, "✅ تم الإلغاء. يمكنك إرسال فيديو جديد في أي وقت.");
+        return;
+      }
+      // أي نص آخر وهناك انتظار — ذكّر المستخدم
+      await botInstance!.sendMessage(
+        chatId,
+        `📹 *في انتظار اختيارك:*\n\n*1️⃣* — نشر مباشرةً على القنوات\n*2️⃣* — إضافة الدعاء على الفيديو\n*3️⃣* — إلغاء\n\n_أرسل 1 أو 2 أو 3_`,
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
 
     // ── أمر التوقف ──────────────────────────────────────────────
     if (text === "توقف" || text === "الغ" || text === "إلغاء" || text === "cancel") {

@@ -29,54 +29,108 @@
   font-display: swap;
 }
 
+/* ─── Dark mode (default) ─── */
 @theme inline {
   --font-sans: 'Cairo', sans-serif;
   --font-display: 'Cairo', sans-serif;
-  
-  --color-background: hsl(222 47% 6%);
-  --color-foreground: hsl(210 40% 98%);
-  
-  --color-card: hsl(222 47% 9%);
-  --color-card-foreground: hsl(210 40% 98%);
-  
-  --color-border: hsl(217 32% 16%);
-  --color-input: hsl(217 32% 16%);
-  
-  --color-primary: hsl(238 100% 69%);
+
+  --color-background:         hsl(222 47% 6%);
+  --color-foreground:         hsl(210 40% 98%);
+
+  --color-card:               hsl(222 47% 9%);
+  --color-card-foreground:    hsl(210 40% 98%);
+
+  --color-border:             hsl(217 32% 16%);
+  --color-input:              hsl(217 32% 16%);
+
+  --color-primary:            hsl(238 100% 69%);
   --color-primary-foreground: hsl(210 40% 98%);
-  
-  --color-secondary: hsl(217 32% 16%);
+
+  --color-secondary:          hsl(217 32% 16%);
   --color-secondary-foreground: hsl(210 40% 98%);
-  
-  --color-accent: hsl(262 83% 65%);
-  --color-accent-foreground: hsl(210 40% 98%);
-  
-  --color-destructive: hsl(350 84% 60%);
+
+  --color-accent:             hsl(262 83% 65%);
+  --color-accent-foreground:  hsl(210 40% 98%);
+
+  --color-muted:              hsl(217 32% 14%);
+  --color-muted-foreground:   hsl(215 20% 55%);
+
+  --color-destructive:        hsl(350 84% 60%);
   --color-destructive-foreground: hsl(210 40% 98%);
-  
-  --color-success: hsl(142 71% 45%);
-  --color-warning: hsl(48 96% 53%);
-  --color-info: hsl(199 89% 48%);
+
+  --color-success:  hsl(142 71% 45%);
+  --color-warning:  hsl(48 96% 53%);
+  --color-info:     hsl(199 89% 48%);
+
+  --color-sidebar-bg:         hsl(222 47% 8%);
+  --color-sidebar-border:     hsl(217 32% 14%);
+}
+
+/* ─── Light mode overrides ─── */
+.light {
+  --color-background:         hsl(220 20% 97%);
+  --color-foreground:         hsl(222 47% 11%);
+
+  --color-card:               hsl(0 0% 100%);
+  --color-card-foreground:    hsl(222 47% 11%);
+
+  --color-border:             hsl(220 13% 88%);
+  --color-input:              hsl(220 13% 88%);
+
+  --color-primary:            hsl(238 100% 60%);
+  --color-primary-foreground: hsl(0 0% 100%);
+
+  --color-secondary:          hsl(220 14% 92%);
+  --color-secondary-foreground: hsl(222 47% 11%);
+
+  --color-accent:             hsl(262 83% 58%);
+  --color-accent-foreground:  hsl(0 0% 100%);
+
+  --color-muted:              hsl(220 14% 92%);
+  --color-muted-foreground:   hsl(220 9% 46%);
+
+  --color-destructive:        hsl(350 84% 52%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  --color-success:  hsl(142 71% 40%);
+  --color-warning:  hsl(48 96% 45%);
+  --color-info:     hsl(199 89% 42%);
+
+  --color-sidebar-bg:         hsl(0 0% 100%);
+  --color-sidebar-border:     hsl(220 13% 88%);
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply bg-background text-foreground antialiased font-sans selection:bg-primary/30 selection:text-primary-foreground;
+    @apply bg-background text-foreground antialiased font-sans selection:bg-primary/20 selection:text-primary;
     direction: rtl;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 }
 
-/* Custom premium scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+
+/* ─── Sidebar bg via CSS var ─── */
+.sidebar-surface {
+  background-color: var(--color-sidebar-bg);
+  border-color: var(--color-sidebar-border);
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+
+/* ─── Smooth transitions for theme switch ─── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
 }
-::-webkit-scrollbar-thumb {
-  @apply bg-border rounded-full transition-colors;
-}
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-secondary-foreground/30;
+/* Don't animate transforms / opacity (breaks animations) */
+.no-theme-transition,
+.no-theme-transition * {
+  transition: none !important;
 }

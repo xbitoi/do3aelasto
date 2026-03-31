@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { logger } from "./logger.js";
+import { recordPublish, getAnalyticsSummary, buildWeeklyReportText, saveChannelStats, loadChannelStats, type ChannelStat } from "./analytics.js";
 
 const execAsync = promisify(exec);
 
@@ -48,6 +49,23 @@ export interface AppSettings {
   facebookToken: string;
   tiktokToken: string;
   publishDescription: string;
+  // Aspect ratio
+  aspectRatio: string;
+  // Scheduled posting
+  scheduledFbPostEnabled: boolean;
+  scheduledFbPostTime: string;
+  scheduledFbPostDays: string;
+  // YouTube captions
+  youtubeAutoCaption: boolean;
+  captionTranslateLang: string;
+  // Analytics & reports
+  autoReportEnabled: boolean;
+  autoReportChatId: string;
+  weeklyReportDay: number;
+  // Smart bot
+  smartBotEnabled: boolean;
+  managedChannelIds: string;
+  smartBotAdminChatId: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -78,6 +96,18 @@ export const defaultSettings: AppSettings = {
   facebookToken: "",
   tiktokToken: "",
   publishDescription: "",
+  aspectRatio: "9:16",
+  scheduledFbPostEnabled: false,
+  scheduledFbPostTime: "08:00",
+  scheduledFbPostDays: "all",
+  youtubeAutoCaption: false,
+  captionTranslateLang: "en",
+  autoReportEnabled: false,
+  autoReportChatId: "",
+  weeklyReportDay: 5,
+  smartBotEnabled: false,
+  managedChannelIds: "",
+  smartBotAdminChatId: "",
 };
 
 interface ChatSession {
@@ -208,6 +238,437 @@ function loadCredentials(): { botToken: string; geminiKey: string; groqKey: stri
 }
 
 loadKnownChats();
+
+// ── Scheduler state ────────────────────────────────────────────────────────
+let schedulerInterval: ReturnType<typeof setInterval> | null = null;
+let lastScheduledPostDate = "";
+let lastWeeklyReportDate = "";
+
+export function getSchedulerStatus() {
+  return {
+    running: schedulerInterval !== null,
+    lastScheduledPostDate,
+    lastWeeklyReportDate,
+  };
+}
+
+// ── Smart Bot channel management ───────────────────────────────────────────
+let smartBotInterval: ReturnType<typeof setInterval> | null = null;
+let lastChannelCheckTime = 0;
+
+export function getSmartBotStatus() {
+  return {
+    running: smartBotInterval !== null,
+    lastChannelCheckTime,
+    channelStats: loadChannelStats(),
+  };
+}
+
+// ── SRT generation from word timings ──────────────────────────────────────
+function generateSRT(
+  words: string[],
+  wordTimings: number[],
+  totalDuration: number
+): string {
+  const lines: string[] = [];
+  const formatTime = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    const ms = Math.round((s % 1) * 1000);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+  };
+
+  const groupSize = 5;
+  for (let i = 0; i < words.length; i += groupSize) {
+    const chunk = words.slice(i, i + groupSize);
+    const startTime = wordTimings[i] || 0;
+    const endIdx = Math.min(i + groupSize, words.length - 1);
+    const endTime = i + groupSize < words.length
+      ? (wordTimings[i + groupSize] || totalDuration)
+      : totalDuration;
+    const idx = Math.floor(i / groupSize) + 1;
+    lines.push(String(idx));
+    lines.push(`${formatTime(startTime)} --> ${formatTime(endTime)}`);
+    lines.push(chunk.join(" "));
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+// ── Translate text via Gemini ──────────────────────────────────────────────
+async function translateText(text: string, targetLang: string, geminiKey: string): Promise<string> {
+  const langNames: Record<string, string> = {
+    en: "English",
+    fr: "French",
+    ur: "Urdu",
+    tr: "Turkish",
+    id: "Indonesian",
+    ms: "Malay",
+    de: "German",
+    es: "Spanish",
+  };
+  const langName = langNames[targetLang] || targetLang;
+  try {
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const result = await model.generateContent({
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `Translate the following Arabic Islamic supplication (Duaa) to ${langName}. Keep it faithful, reverent and accurate. Output ONLY the translation without any explanation:\n\n${text}`,
+        }],
+      }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+    });
+    return result.response.text().trim();
+  } catch {
+    return text;
+  }
+}
+
+// ── Upload SRT captions to YouTube ────────────────────────────────────────
+async function uploadYouTubeCaptions(
+  accessToken: string,
+  videoId: string,
+  srtContent: string,
+  lang: string
+): Promise<boolean> {
+  try {
+    const boundary = "srtboundary";
+    const metadata = JSON.stringify({
+      snippet: {
+        videoId,
+        language: lang,
+        name: `Arabic Supplication — ${lang.toUpperCase()}`,
+        isDraft: false,
+      },
+    });
+    const body = [
+      `--${boundary}`,
+      `Content-Type: application/json; charset=UTF-8`,
+      ``,
+      metadata,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      ``,
+      srtContent,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const res = await fetch(
+      `https://www.googleapis.com/upload/youtube/v3/captions?uploadType=multipart&part=snippet`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+    return res.ok || res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+// ── Smart bot: fetch channel info from Telegram ───────────────────────────
+async function fetchTelegramChannelInfo(channelId: string, botToken: string): Promise<ChannelStat | null> {
+  try {
+    const chatRes = await fetch(
+      `https://api.telegram.org/bot${botToken}/getChat?chat_id=${channelId}`
+    );
+    const chatData = await chatRes.json() as {
+      ok: boolean;
+      result?: { title?: string; type?: string; username?: string };
+    };
+    if (!chatData.ok || !chatData.result) return null;
+
+    const countRes = await fetch(
+      `https://api.telegram.org/bot${botToken}/getChatMembersCount?chat_id=${channelId}`
+    );
+    const countData = await countRes.json() as { ok: boolean; result?: number };
+    const memberCount = countData.ok ? (countData.result || 0) : 0;
+
+    return {
+      channelId: String(channelId),
+      channelName: chatData.result?.title || channelId,
+      type: "telegram",
+      subscriberCount: memberCount,
+      checkedAt: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── Smart bot: generate daily Duaa content ───────────────────────────────
+async function generateDailyDuaaContent(geminiKey: string): Promise<{ duaa: string; title: string; caption: string }> {
+  const prompts = [
+    "دعاء الصباح",
+    "دعاء المساء",
+    "دعاء الشكر",
+    "دعاء الاستغفار",
+    "دعاء طلب الرزق",
+    "دعاء الهداية",
+    "دعاء الصبر",
+    "دعاء حفظ الأهل",
+  ];
+  const topic = prompts[new Date().getDay() % prompts.length];
+
+  try {
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const result = await model.generateContent({
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `اكتب ${topic} إسلامياً أصيلاً بالتشكيل الكامل. من 3 إلى 5 أسطر. فقط الدعاء بدون مقدمات.`,
+        }],
+      }],
+      generationConfig: { temperature: 1.0, maxOutputTokens: 300 },
+    });
+    const duaa = result.response.text().trim();
+
+    const titleResult = await model.generateContent({
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `اكتب عنواناً جذاباً لفيديو ${topic} إسلامي. 4-6 كلمات مع رموز. فقط العنوان.`,
+        }],
+      }],
+      generationConfig: { temperature: 1.2, maxOutputTokens: 50 },
+    });
+    const title = titleResult.response.text().trim();
+
+    return {
+      duaa,
+      title,
+      caption: buildFacebookDescription(duaa, undefined),
+    };
+  } catch {
+    return {
+      duaa: `اللَّهُمَّ إِنَّا نَسْأَلُكَ رَحْمَتَكَ وَمَغْفِرَتَكَ ✨`,
+      title: `🤲 ${topic} — سبحان الله`,
+      caption: buildFacebookDescription(`اللَّهُمَّ إِنَّا نَسْأَلُكَ رَحْمَتَكَ وَمَغْفِرَتَكَ`, undefined),
+    };
+  }
+}
+
+// ── Smart bot: post text content to managed channels ─────────────────────
+async function postToManagedChannels(content: { title: string; body: string }, botToken: string, channelIds: string[]): Promise<void> {
+  for (const channelId of channelIds) {
+    try {
+      const text = `*${content.title}*\n\n${content.body}`;
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: channelId,
+          text,
+          parse_mode: "Markdown",
+          disable_web_page_preview: false,
+        }),
+      });
+      addLog(`📢 تم النشر في القناة ${channelId}`, "success");
+    } catch (err) {
+      addLog(`❌ فشل النشر في القناة ${channelId}: ${err instanceof Error ? err.message.slice(0, 40) : "خطأ"}`, "error");
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// ── Check if scheduled post should run ────────────────────────────────────
+function shouldRunScheduledPost(settings: AppSettings): boolean {
+  if (!settings.scheduledFbPostEnabled || !settings.facebookToken) return false;
+  const now = new Date();
+  const dateKey = now.toDateString();
+  if (lastScheduledPostDate === dateKey) return false;
+
+  const [hStr, mStr] = settings.scheduledFbPostTime.split(":");
+  const targetH = parseInt(hStr || "8");
+  const targetM = parseInt(mStr || "0");
+  const nowH = now.getHours();
+  const nowM = now.getMinutes();
+
+  if (nowH !== targetH || nowM !== targetM) return false;
+
+  const days = settings.scheduledFbPostDays;
+  if (days !== "all") {
+    const allowedDays = days.split(",").map(d => parseInt(d.trim()));
+    if (!allowedDays.includes(now.getDay())) return false;
+  }
+  return true;
+}
+
+// ── Check if weekly report should run ─────────────────────────────────────
+function shouldRunWeeklyReport(settings: AppSettings): boolean {
+  if (!settings.autoReportEnabled || !settings.autoReportChatId) return false;
+  const now = new Date();
+  const weekKey = `${now.getFullYear()}-W${Math.floor(now.getDate() / 7)}-${now.getDay()}`;
+  if (lastWeeklyReportDate === weekKey) return false;
+  if (now.getDay() !== (settings.weeklyReportDay || 5)) return false;
+  if (now.getHours() !== 9 || now.getMinutes() !== 0) return false;
+  return true;
+}
+
+// ── Main scheduler tick (runs every minute) ───────────────────────────────
+async function schedulerTick() {
+  const settings = getSettings();
+  const botToken = loadCredentials()?.botToken;
+  if (!botToken || !botInstance) return;
+
+  // Scheduled Facebook post
+  if (shouldRunScheduledPost(settings)) {
+    const dateKey = new Date().toDateString();
+    lastScheduledPostDate = dateKey;
+    addLog("⏰ نشر مجدوَل — فيسبوك", "info");
+    try {
+      const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
+      const last = loadLastVideo();
+      if (last && settings.facebookToken) {
+        const fbRes = await publishToFacebook(last.videoPath, title, caption, settings.facebookToken);
+        if (fbRes.success) {
+          addLog(`✅ نشر مجدوَل فيسبوك: ${fbRes.url}`, "success");
+          recordPublish({
+            title,
+            duaaText: duaa,
+            platforms: [{ platform: "فيسبوك", success: true, url: fbRes.url, channelName: fbRes.pageName }],
+            scheduled: true,
+          });
+          if (settings.smartBotAdminChatId) {
+            await botInstance.sendMessage(
+              parseInt(settings.smartBotAdminChatId),
+              `✅ *نشر مجدوَل تلقائي*\n\n📘 فيسبوك: ${fbRes.url}\n🤲 _${duaa.slice(0, 80)}..._`,
+              { parse_mode: "Markdown" }
+            ).catch(() => {});
+          }
+        } else {
+          addLog(`❌ فشل النشر المجدوَل: ${fbRes.error}`, "error");
+        }
+      } else if (!last && settings.facebookToken) {
+        const textOnlyCaption = `🤲 *${title}*\n\n${caption}`;
+        await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
+        });
+        addLog("📝 نشر نصي مجدوَل (بدون فيديو) على فيسبوك", "success");
+      }
+    } catch (err) {
+      addLog(`❌ خطأ في النشر المجدوَل: ${err instanceof Error ? err.message.slice(0, 60) : "خطأ"}`, "error");
+    }
+  }
+
+  // Weekly analytics report
+  if (shouldRunWeeklyReport(settings)) {
+    const weekKey = `${new Date().getFullYear()}-W${Math.floor(new Date().getDate() / 7)}-${new Date().getDay()}`;
+    lastWeeklyReportDate = weekKey;
+    try {
+      const summary = getAnalyticsSummary();
+      const reportText = buildWeeklyReportText(summary);
+      const chatId = parseInt(settings.autoReportChatId);
+      if (!isNaN(chatId)) {
+        await botInstance.sendMessage(chatId, reportText, { parse_mode: "Markdown" }).catch(() => {});
+        addLog("📊 تم إرسال التقرير الأسبوعي", "success");
+      }
+    } catch (err) {
+      addLog(`❌ فشل إرسال التقرير: ${err instanceof Error ? err.message.slice(0, 50) : "خطأ"}`, "error");
+    }
+  }
+
+  // Smart bot: update channel stats every 6 hours
+  if (settings.smartBotEnabled && settings.managedChannelIds) {
+    const now = Date.now();
+    if (now - lastChannelCheckTime > 6 * 60 * 60 * 1000) {
+      lastChannelCheckTime = now;
+      const channelIds = settings.managedChannelIds.split(",").map(s => s.trim()).filter(Boolean);
+      const stats: ChannelStat[] = [];
+      for (const channelId of channelIds) {
+        const stat = await fetchTelegramChannelInfo(channelId, botToken);
+        if (stat) stats.push(stat);
+      }
+      if (stats.length > 0) {
+        saveChannelStats(stats);
+        addLog(`📊 تم تحديث إحصائيات ${stats.length} قناة`, "info");
+
+        // Smart: if channel growth detected, notify admin
+        if (settings.smartBotAdminChatId) {
+          const adminId = parseInt(settings.smartBotAdminChatId);
+          if (!isNaN(adminId)) {
+            const lines = stats.map(s =>
+              `📡 *${s.channelName}* — ${(s.subscriberCount || 0).toLocaleString()} متابع`
+            ).join("\n");
+            await botInstance.sendMessage(
+              adminId,
+              `📊 *تحديث القنوات التلقائي*\n\n${lines}\n\n_تحقق من لوحة التحليلات للتفاصيل_`,
+              { parse_mode: "Markdown" }
+            ).catch(() => {});
+          }
+        }
+      }
+    }
+
+    // Smart bot: post daily inspiration to managed channels (once per day)
+    const smartDayKey = `smart-${new Date().toDateString()}`;
+    const smartPostedFile = path.join(process.cwd(), "smart-post.json");
+    let smartPosted = "";
+    try {
+      if (fs.existsSync(smartPostedFile)) smartPosted = JSON.parse(fs.readFileSync(smartPostedFile, "utf8"));
+    } catch {}
+
+    const smartHour = new Date().getHours();
+    if (smartPosted !== smartDayKey && smartHour === 10) {
+      try {
+        fs.writeFileSync(smartPostedFile, JSON.stringify(smartDayKey), "utf8");
+        const channelIds = settings.managedChannelIds.split(",").map(s => s.trim()).filter(Boolean);
+        if (channelIds.length > 0) {
+          const content = await generateDailyDuaaContent(geminiKeyStore);
+          await postToManagedChannels({ title: content.title, body: content.duaa }, botToken, channelIds);
+          addLog(`📢 البوت الذكي: نشر تلقائي في ${channelIds.length} قناة`, "success");
+        }
+      } catch (err) {
+        addLog(`⚠️ البوت الذكي فشل في النشر التلقائي: ${err instanceof Error ? err.message.slice(0, 50) : "خطأ"}`, "warning");
+      }
+    }
+  }
+}
+
+// ── Start/stop scheduler ───────────────────────────────────────────────────
+function startScheduler() {
+  if (schedulerInterval) return;
+  schedulerInterval = setInterval(() => {
+    schedulerTick().catch(err => logger.warn({ err }, "Scheduler tick error"));
+  }, 60 * 1000);
+  addLog("⏰ جدولة المهام التلقائية مُفعَّلة", "info");
+}
+
+function stopScheduler() {
+  if (schedulerInterval) {
+    clearInterval(schedulerInterval);
+    schedulerInterval = null;
+  }
+}
+
+export function triggerScheduledPost(): Promise<void> {
+  return schedulerTick();
+}
+
+export async function sendManualReport(chatId: number): Promise<string> {
+  try {
+    const summary = getAnalyticsSummary();
+    const reportText = buildWeeklyReportText(summary);
+    if (botInstance) {
+      await botInstance.sendMessage(chatId, reportText, { parse_mode: "Markdown" });
+    }
+    return reportText;
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : "خطأ في إنشاء التقرير");
+  }
+}
+
+export { getAnalyticsSummary, recordPublish };
 
 export function addLog(message: string, level: LogLevel = "info") {
   const entry: LogEntry = {
@@ -626,6 +1087,32 @@ async function publishToYouTube(
       return { success: false, error: regularRes.error || shortRes.error };
     }
 
+    // ── Auto SRT captions ─────────────────────────────────────────────────
+    const settings = getSettings();
+    if (settings.youtubeAutoCaption && regularRes.videoId) {
+      try {
+        addLog("📝 جاري توليد الترجمة وإضافة Captions...", "processing");
+        const words = duaaText.replace(/[ًٌٍَُِّْ]/g, "").split(/\s+/).filter(Boolean);
+        const avgWordDur = 0.5;
+        const timings = words.map((_, i) => i * avgWordDur);
+        const totalDur = words.length * avgWordDur + 1;
+
+        const arabicSRT = generateSRT(words, timings, totalDur);
+        await uploadYouTubeCaptions(accessToken, regularRes.videoId, arabicSRT, "ar");
+        addLog("✅ Captions عربية: تمت الإضافة", "success");
+
+        if (settings.captionTranslateLang && settings.captionTranslateLang !== "ar") {
+          const translated = await translateText(duaaText, settings.captionTranslateLang, geminiKeyStore);
+          const transWords = translated.split(/\s+/).filter(Boolean);
+          const transSRT = generateSRT(transWords, timings, totalDur);
+          await uploadYouTubeCaptions(accessToken, regularRes.videoId, transSRT, settings.captionTranslateLang);
+          addLog(`✅ Captions ${settings.captionTranslateLang.toUpperCase()}: تمت الإضافة`, "success");
+        }
+      } catch (captionErr) {
+        addLog(`⚠️ Captions: ${captionErr instanceof Error ? captionErr.message.slice(0, 50) : "خطأ"}`, "warning");
+      }
+    }
+
     return {
       success: true,
       videoId: regularRes.videoId, url: regularRes.url,
@@ -937,6 +1424,24 @@ async function handlePublish(chatId: number, settings: AppSettings, platformFilt
     try { fs.unlinkSync(publishVideoPath); } catch {}
   }
 
+  // ── Record analytics ────────────────────────────────────────────────────
+  try {
+    recordPublish({
+      title,
+      duaaText: last.duaaText,
+      platforms: platformResults.map(r => ({
+        platform: r.platform,
+        success: r.success,
+        url: r.url,
+        videoId: undefined,
+        channelName: r.channelName,
+        error: r.error,
+      })),
+      videoSize,
+      duration: Math.round((Date.now() - publishStartTime) / 1000),
+    });
+  } catch {}
+
   const publishDuration = Math.round((Date.now() - publishStartTime) / 1000);
   const successCount = platformResults.filter(r => r.success).length;
   const failCount = platformResults.filter(r => !r.success).length;
@@ -1031,6 +1536,8 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
 
   botInstance = new TelegramBot(botToken, { polling: true });
   botRunning = true;
+
+  startScheduler();
 
   addLog(`✅ تم تشغيل البوت: ${botName} (@${botUsername})${isAutoStart ? " (تشغيل تلقائي)" : ""}`, "success");
 
@@ -1293,6 +1800,64 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
       return;
     }
 
+    // ── أوامر التقارير والتحليل ─────────────────────────────────
+    const reportTriggers = ["تقرير", "إحصائيات", "احصائيات", "تقرير اسبوعي", "تقرير أسبوعي", "أداء القناة", "تحليل", "report", "analytics"];
+    const isReportCmd = reportTriggers.some(kw => text === kw || text.startsWith(kw));
+    if (isReportCmd) {
+      try {
+        await botInstance!.sendMessage(chatId, "📊 *جاري إعداد التقرير...*", { parse_mode: "Markdown" });
+        const summary = getAnalyticsSummary();
+        const reportText = buildWeeklyReportText(summary);
+        await botInstance!.sendMessage(chatId, reportText, { parse_mode: "Markdown" });
+      } catch (err) {
+        await botInstance!.sendMessage(chatId, "❌ تعذّر إنشاء التقرير، تأكد من وجود سجل نشر مسبق.");
+      }
+      return;
+    }
+
+    // ── أوامر إدارة القنوات الذكية ───────────────────────────────
+    const channelTriggers = ["قنوات", "القنوات", "حالة القنوات", "إحصائيات القنوات", "channels"];
+    const isChannelCmd = channelTriggers.some(kw => text === kw || text.startsWith(kw));
+    if (isChannelCmd) {
+      const settings = getSettings();
+      const stats = loadChannelStats();
+      if (stats.length === 0) {
+        await botInstance!.sendMessage(
+          chatId,
+          "📡 *لا توجد بيانات قنوات بعد*\n\nأضف معرّفات القنوات من الإعدادات المتقدمة في لوحة التحكم.",
+          { parse_mode: "Markdown" }
+        );
+        return;
+      }
+      const lines = stats.map(s => {
+        const sub = s.subscriberCount !== undefined ? `\n   👥 *${s.subscriberCount.toLocaleString()}* متابع` : "";
+        const icon = s.type === "telegram" ? "✈️" : s.type === "youtube" ? "📺" : "📘";
+        return `${icon} *${s.channelName}*${sub}`;
+      }).join("\n\n");
+      const checkedAt = stats[0] ? new Date(stats[0].checkedAt).toLocaleString("ar-EG") : "—";
+      await botInstance!.sendMessage(
+        chatId,
+        `📊 *إحصائيات القنوات المُدارة*\n\n${lines}\n\n━━━━━━━━\n⏱️ آخر تحديث: ${checkedAt}`,
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
+
+    // ── أمر دعاء اليوم ───────────────────────────────────────────
+    const duaaTriggers = ["دعاء اليوم", "اعطني دعاء", "أعطني دعاء", "دعاء جديد", "اكتب دعاء", "اكتب لي دعاء", "daily"];
+    const isDuaaCmd = duaaTriggers.some(kw => text === kw || text.startsWith(kw));
+    if (isDuaaCmd) {
+      const waitMsg = await botInstance!.sendMessage(chatId, "🤲 *جاري توليد دعاء اليوم...*", { parse_mode: "Markdown" });
+      const content = await generateDailyDuaaContent(geminiKeyStore);
+      await botInstance!.editMessageText(
+        `🤲 *${content.title}*\n\n${content.duaa}\n\n━━━━━━━━\n_سبحان الله وبحمده سبحان الله العظيم_`,
+        { chat_id: chatId, message_id: waitMsg.message_id, parse_mode: "Markdown" }
+      ).catch(async () => {
+        await botInstance!.sendMessage(chatId, `🤲 *${content.title}*\n\n${content.duaa}`, { parse_mode: "Markdown" });
+      });
+      return;
+    }
+
     // ── أمر ابدا ────────────────────────────────────────────────
     if (text === "ابدا" || text === "ابدأ" || text.includes("ابدا") || text.includes("ابدأ")) {
       const session = chatSessions.get(chatId);
@@ -1422,6 +1987,7 @@ export function stopBot() {
   botInstance = null;
   botRunning = false;
   startTime = null;
+  stopScheduler();
   addLog("🔴 تم إيقاف البوت", "warning");
   return { success: true, message: "تم إيقاف البوت بنجاح" };
 }
@@ -1683,8 +2249,20 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
         parse_mode: "Markdown",
       });
     } else {
-      // 6. Get reference dimensions from last video
-      const [refW, refH] = await Promise.all([getVideoWidth(lastRawPath), getVideoHeight(lastRawPath)]);
+      // 6. Determine target dimensions from aspect ratio setting (or fallback to source video)
+      const aspectRatioMap: Record<string, [number, number]> = {
+        "9:16": [1080, 1920],
+        "16:9": [1920, 1080],
+        "1:1":  [1080, 1080],
+        "4:5":  [1080, 1350],
+      };
+      let refW: number, refH: number;
+      const arSetting = settings.aspectRatio || "9:16";
+      if (aspectRatioMap[arSetting]) {
+        [refW, refH] = aspectRatioMap[arSetting];
+      } else {
+        [refW, refH] = await Promise.all([getVideoWidth(lastRawPath), getVideoHeight(lastRawPath)]);
+      }
 
       // 7. Normalize non-last videos to same dimensions/fps
       setOpStage(chatId, "توحيد المقاطع...");
@@ -2578,13 +3156,21 @@ async function processVideoWithText(
   outputPath: string,
   settings: AppSettings
 ) {
-  const [videoW, videoH, videoDuration, audioDuration] = await Promise.all([
+  const [srcW, srcH, videoDuration, audioDuration] = await Promise.all([
     getVideoWidth(videoPath),
     getVideoHeight(videoPath),
     getVideoDuration(videoPath),
     getAudioDuration(audioPath),
   ]);
-  addLog(`📐 أبعاد الفيديو: ${videoW}×${videoH} | المدة: ${videoDuration.toFixed(1)}ث`, "info");
+  const aspectRatioResMap: Record<string, [number, number]> = {
+    "9:16": [1080, 1920],
+    "16:9": [1920, 1080],
+    "1:1":  [1080, 1080],
+    "4:5":  [1080, 1350],
+  };
+  const arKey = settings.aspectRatio || "9:16";
+  const [videoW, videoH] = aspectRatioResMap[arKey] ?? [srcW, srcH];
+  addLog(`📐 أبعاد المخرج: ${videoW}×${videoH} (${arKey}) | المدة: ${videoDuration.toFixed(1)}ث`, "info");
 
   const fontPath = getFontPath(settings.font);
   const activeColor = settings.activeColor.replace("#", "");
@@ -2627,9 +3213,12 @@ async function processVideoWithText(
   const origVol = (settings.muteOriginal ? 0 : (settings.originalVolume ?? 90) / 100).toFixed(3);
   const duaaVol = (settings.muteDuaa    ? 0 : (settings.duaaVolume    ?? 120) / 100).toFixed(3);
 
+  const scaleFilter = `scale=${videoW}:${videoH}:force_original_aspect_ratio=decrease,pad=${videoW}:${videoH}:(ow-iw)/2:(oh-ih)/2`;
+
   if (hasAudio) {
     filterComplex = [
-      `[0:v][2:v]overlay=0:0:format=auto[vout]`,
+      `[0:v]${scaleFilter}[scaled]`,
+      `[scaled][2:v]overlay=0:0:format=auto[vout]`,
       `[1:a]volume=${duaaVol},apad=whole_dur=${videoDuration}[tts_full]`,
       `[0:a]volume=${origVol}[orig_vol]`,
       `[tts_full][orig_vol]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
@@ -2637,7 +3226,8 @@ async function processVideoWithText(
     audioMap = `[aout]`;
   } else {
     filterComplex = [
-      `[0:v][2:v]overlay=0:0:format=auto[vout]`,
+      `[0:v]${scaleFilter}[scaled]`,
+      `[scaled][2:v]overlay=0:0:format=auto[vout]`,
       `[1:a]volume=${duaaVol},apad=whole_dur=${videoDuration}[aout]`,
     ].join(";");
     audioMap = `[aout]`;

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Bot, Settings, BookOpen, Activity } from "lucide-react";
+import { Bot, Settings, BookOpen, BarChart2, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import React from "react";
 
@@ -7,7 +7,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   
   const navItems = [
-    { href: "/", label: "لوحة التحكم", icon: Activity },
+    { href: "/", label: "لوحة التحكم", icon: Bot },
+    { href: "/smart-bot", label: "البوت الذكي", icon: Brain },
+    { href: "/analytics", label: "تحليل الأداء", icon: BarChart2 },
     { href: "/settings", label: "إعدادات متقدمة", icon: Settings },
     { href: "/guide", label: "دليل الاستخدام", icon: BookOpen },
   ];
@@ -25,7 +27,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <p className="text-sm font-bold text-muted-foreground pr-1">لوحة تحكم تيليغرام الذكية</p>
         </div>
         
-        <nav className="flex-1 px-5 space-y-3 mt-8">
+        <nav className="flex-1 px-5 space-y-2 mt-6">
           {navItems.map((item) => {
             const isActive = location === item.href;
             return (
@@ -45,16 +47,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-8 mt-auto hidden lg:block">
           <div className="bg-black/30 rounded-2xl p-6 border border-border/50 text-center shadow-inner relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
-            <div className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-2">الإصدار 1.0</div>
+            <div className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-2">الإصدار 2.0</div>
             <div className="text-sm font-black bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent leading-relaxed">
-              Telegram Studio<br/>AI Video Processor
+              Telegram Studio<br/>AI Smart Bot
             </div>
           </div>
         </div>
       </aside>
 
       <main className="flex-1 p-6 sm:p-10 lg:p-12 overflow-y-auto h-screen relative">
-        {/* Ambient background glows */}
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-[120px] pointer-events-none" />
         

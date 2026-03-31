@@ -15,6 +15,11 @@ import {
   testFacebookToken,
   testTikTokToken,
   sendWelcomeToAll,
+  getSchedulerStatus,
+  getSmartBotStatus,
+  triggerScheduledPost,
+  sendManualReport,
+  getAnalyticsSummary,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -136,6 +141,57 @@ router.post("/social/test-tiktok", async (req, res) => {
 router.post("/bot/send-welcome", async (_req, res) => {
   const result = await sendWelcomeToAll();
   res.json(result);
+});
+
+// ── Analytics ─────────────────────────────────────────────────────────────
+
+router.get("/analytics", (_req, res) => {
+  const summary = getAnalyticsSummary();
+  res.json(summary);
+});
+
+router.post("/analytics/report", async (req, res) => {
+  const { chatId } = req.body as { chatId?: string };
+  const settings = getSettings();
+  const targetId = chatId
+    ? parseInt(chatId)
+    : settings.autoReportChatId
+    ? parseInt(settings.autoReportChatId)
+    : null;
+
+  if (!targetId || isNaN(targetId)) {
+    res.status(400).json({ success: false, error: "معرّف المحادثة مطلوب" });
+    return;
+  }
+  try {
+    const text = await sendManualReport(targetId);
+    res.json({ success: true, reportText: text });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// ── Scheduler ─────────────────────────────────────────────────────────────
+
+router.get("/scheduler/status", (_req, res) => {
+  res.json(getSchedulerStatus());
+});
+
+router.post("/scheduler/trigger", async (_req, res) => {
+  try {
+    await triggerScheduledPost();
+    res.json({ success: true, message: "تم تشغيل المهمة المجدولة يدوياً" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// ── Smart Bot ─────────────────────────────────────────────────────────────
+
+router.get("/smart-bot/status", (_req, res) => {
+  res.json(getSmartBotStatus());
 });
 
 export default router;

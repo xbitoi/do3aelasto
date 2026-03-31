@@ -670,6 +670,244 @@ export async function sendManualReport(chatId: number): Promise<string> {
 
 export { getAnalyticsSummary, recordPublish };
 
+// ══════════════════════════════════════════════════════════════
+//  REAL PLATFORM ANALYTICS
+// ══════════════════════════════════════════════════════════════
+
+export async function fetchYouTubeAnalytics() {
+  const settings = getSettings();
+  const token = settings.youtubeToken;
+  if (!token) return { error: "لم يتم ربط حساب يوتيوب بعد" };
+
+  try {
+    // 1. Channel info + statistics
+    const chRes = await fetch(
+      "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings&mine=true",
+      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+    );
+    const chData = await chRes.json() as any;
+    if (!chRes.ok) {
+      const msg = chData.error?.message || "";
+      if (msg.toLowerCase().includes("credential") || msg.toLowerCase().includes("auth") || chRes.status === 401) {
+        return { error: "انتهت صلاحية رمز يوتيوب — يرجى تجديد الربط من الإعدادات المتقدمة" };
+      }
+      return { error: msg || "تعذّر جلب بيانات القناة" };
+    }
+    if (!chData.items?.length) {
+      return { error: "لا توجد قناة مرتبطة بهذا الحساب" };
+    }
+
+    const ch = chData.items[0];
+    const stats = ch.statistics ?? {};
+    const channelId = ch.id;
+
+    // 2. Recent uploads playlist
+    const uploadsPlaylistId = ch.contentDetails?.relatedPlaylists?.uploads
+      ?? ch.snippet?.thumbnails; // fallback: search instead
+
+    // 3. Recent videos via search
+    const searchRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&order=date&maxResults=10`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+    );
+    const searchData = await searchRes.json() as any;
+    const videoIds: string[] = (searchData.items ?? []).map((v: any) => v.id?.videoId).filter(Boolean);
+
+    // 4. Video stats
+    let videos: any[] = [];
+    if (videoIds.length > 0) {
+      const vidRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(",")}&maxResults=10`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+      );
+      const vidData = await vidRes.json() as any;
+      videos = (vidData.items ?? []).map((v: any) => ({
+        id: v.id,
+        title: v.snippet?.title,
+        publishedAt: v.snippet?.publishedAt,
+        thumbnail: v.snippet?.thumbnails?.medium?.url,
+        views: parseInt(v.statistics?.viewCount ?? "0"),
+        likes: parseInt(v.statistics?.likeCount ?? "0"),
+        comments: parseInt(v.statistics?.commentCount ?? "0"),
+        duration: v.contentDetails?.duration,
+      }));
+    }
+
+    return {
+      platform: "youtube",
+      channel: {
+        id: channelId,
+        name: ch.snippet?.title,
+        description: ch.snippet?.description?.slice(0, 200),
+        thumbnail: ch.snippet?.thumbnails?.medium?.url,
+        country: ch.snippet?.country,
+        subscriberCount: parseInt(stats.subscriberCount ?? "0"),
+        viewCount: parseInt(stats.viewCount ?? "0"),
+        videoCount: parseInt(stats.videoCount ?? "0"),
+        hiddenSubscriberCount: stats.hiddenSubscriberCount ?? false,
+      },
+      videos,
+      fetchedAt: Date.now(),
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+const FB_VER_AN = "v21.0";
+
+export async function fetchFacebookAnalytics() {
+  const settings = getSettings();
+  const token = settings.facebookToken;
+  if (!token) return { error: "لم يتم ربط حساب فيسبوك بعد" };
+
+  try {
+    // 1. Page basic info
+    const pageRes = await fetch(
+      `https://graph.facebook.com/${FB_VER_AN}/me?fields=id,name,fan_count,followers_count,talking_about_count,category,picture.type(large),cover,about&access_token=${token}`
+    );
+    const pageData = await pageRes.json() as any;
+    if (!pageRes.ok || pageData.error) {
+      const msg = pageData.error?.message || "";
+      if (pageRes.status === 401 || pageRes.status === 403 || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("session")) {
+        return { error: "انتهت صلاحية رمز فيسبوك — يرجى تجديد الربط من الإعدادات المتقدمة" };
+      }
+      return { error: msg || "تعذّر جلب بيانات الصفحة" };
+    }
+
+    // 2. Page insights (weekly)
+    const insightsRes = await fetch(
+      `https://graph.facebook.com/${FB_VER_AN}/me/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_views_total&period=week&access_token=${token}`
+    );
+    const insightsData = await insightsRes.json() as any;
+    const insights: Record<string, number> = {};
+    for (const item of (insightsData.data ?? [])) {
+      const last = item.values?.at(-1);
+      if (last) insights[item.name] = last.value ?? 0;
+    }
+
+    // 3. Recent posts with engagement
+    const postsRes = await fetch(
+      `https://graph.facebook.com/${FB_VER_AN}/me/posts?fields=id,message,story,created_time,likes.summary(true),comments.summary(true),shares,full_picture&limit=10&access_token=${token}`
+    );
+    const postsData = await postsRes.json() as any;
+    const posts = (postsData.data ?? []).map((p: any) => ({
+      id: p.id,
+      message: p.message?.slice(0, 120) || p.story || "—",
+      createdAt: p.created_time,
+      picture: p.full_picture,
+      likes: p.likes?.summary?.total_count ?? 0,
+      comments: p.comments?.summary?.total_count ?? 0,
+      shares: p.shares?.count ?? 0,
+    }));
+
+    return {
+      platform: "facebook",
+      page: {
+        id: pageData.id,
+        name: pageData.name,
+        about: pageData.about?.slice(0, 200),
+        category: pageData.category,
+        picture: pageData.picture?.data?.url,
+        cover: pageData.cover?.source,
+        fanCount: pageData.fan_count ?? 0,
+        followersCount: pageData.followers_count ?? pageData.fan_count ?? 0,
+        talkingAbout: pageData.talking_about_count ?? 0,
+      },
+      insights: {
+        weeklyImpressions: insights.page_impressions ?? 0,
+        weeklyReach: insights.page_impressions_unique ?? 0,
+        weeklyEngaged: insights.page_engaged_users ?? 0,
+        weeklyEngagement: insights.page_post_engagements ?? 0,
+        weeklyViews: insights.page_views_total ?? 0,
+      },
+      posts,
+      fetchedAt: Date.now(),
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+export async function fetchTikTokAnalytics() {
+  const settings = getSettings();
+  const token = settings.tiktokToken;
+  if (!token) return { error: "لم يتم ربط حساب تيك توك بعد" };
+
+  try {
+    // 1. User info
+    const userRes = await fetch(
+      "https://open.tiktokapis.com/v2/user/info/?fields=display_name,username,avatar_url,follower_count,following_count,likes_count,video_count,profile_deep_link",
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const userData = await userRes.json() as any;
+    if (!userRes.ok || (userData.error && userData.error.code !== "ok")) {
+      const msg = userData.error?.message || "";
+      if (userRes.status === 401 || userRes.status === 403 || msg.toLowerCase().includes("token") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("auth")) {
+        return { error: "انتهت صلاحية رمز تيك توك — يرجى تجديد الربط من الإعدادات المتقدمة" };
+      }
+      return { error: msg || "تعذّر جلب بيانات المستخدم" };
+    }
+    const user = userData.data?.user ?? {};
+
+    // 2. Recent videos
+    const videosRes = await fetch(
+      "https://open.tiktokapis.com/v2/video/list/?fields=id,title,cover_image_url,share_url,view_count,like_count,comment_count,share_count,create_time,duration",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ max_count: 10 }),
+      }
+    );
+    const videosData = await videosRes.json() as any;
+    const videos = (videosData.data?.videos ?? []).map((v: any) => ({
+      id: v.id,
+      title: v.title || "—",
+      cover: v.cover_image_url,
+      shareUrl: v.share_url,
+      views: v.view_count ?? 0,
+      likes: v.like_count ?? 0,
+      comments: v.comment_count ?? 0,
+      shares: v.share_count ?? 0,
+      createdAt: v.create_time ? new Date(v.create_time * 1000).toISOString() : null,
+      duration: v.duration,
+    }));
+
+    return {
+      platform: "tiktok",
+      user: {
+        username: user.username,
+        displayName: user.display_name,
+        avatar: user.avatar_url,
+        profileUrl: user.profile_deep_link,
+        followersCount: user.follower_count ?? 0,
+        followingCount: user.following_count ?? 0,
+        likesCount: user.likes_count ?? 0,
+        videoCount: user.video_count ?? 0,
+      },
+      videos,
+      fetchedAt: Date.now(),
+    };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+export function fetchBotAnalytics() {
+  const summary = getAnalyticsSummary();
+  const settings = getSettings();
+  return {
+    platform: "bot",
+    summary,
+    connected: {
+      youtube: Boolean(settings.youtubeToken),
+      facebook: Boolean(settings.facebookToken),
+      tiktok: Boolean(settings.tiktokToken),
+    },
+    fetchedAt: Date.now(),
+  };
+}
+
 export function addLog(message: string, level: LogLevel = "info") {
   const entry: LogEntry = {
     id: Date.now().toString() + Math.random().toString(36).slice(2, 6),

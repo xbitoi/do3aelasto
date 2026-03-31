@@ -20,6 +20,10 @@ import {
   triggerScheduledPost,
   sendManualReport,
   getAnalyticsSummary,
+  fetchYouTubeAnalytics,
+  fetchFacebookAnalytics,
+  fetchTikTokAnalytics,
+  fetchBotAnalytics,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -192,6 +196,27 @@ router.post("/scheduler/trigger", async (_req, res) => {
 
 router.get("/smart-bot/status", (_req, res) => {
   res.json(getSmartBotStatus());
+});
+
+// ── Platform Real Analytics ───────────────────────────────────────────────
+
+router.get("/analytics/youtube", async (_req, res) => {
+  const data = await fetchYouTubeAnalytics();
+  res.json(data);
+});
+
+router.get("/analytics/facebook", async (_req, res) => {
+  const data = await fetchFacebookAnalytics();
+  res.json(data);
+});
+
+router.get("/analytics/tiktok", async (_req, res) => {
+  const data = await fetchTikTokAnalytics();
+  res.json(data);
+});
+
+router.get("/analytics/bot", (_req, res) => {
+  res.json(fetchBotAnalytics());
 });
 
 export default router;

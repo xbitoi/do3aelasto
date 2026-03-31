@@ -3,7 +3,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Youtube, Facebook, Bot, RefreshCw, TrendingUp, Eye, ThumbsUp,
   MessageCircle, Share2, Users, Video, BarChart2, AlertCircle,
-  Link2, Play, Calendar, Zap, Globe, Loader2
+  Link2, Play, Calendar, Zap, Globe, Loader2, DollarSign, BadgeDollarSign
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,12 +11,14 @@ import { cn } from "@/lib/utils";
 
 interface YTChannel { id:string; name:string; description:string; thumbnail:string; country:string; subscriberCount:number; viewCount:number; videoCount:number; hiddenSubscriberCount:boolean; }
 interface YTVideo { id:string; title:string; publishedAt:string; thumbnail:string; views:number; likes:number; comments:number; duration:string; }
-interface YTData { platform:"youtube"; channel:YTChannel; videos:YTVideo[]; fetchedAt:number; error?:string; }
+interface YTEarnings { realRevenue30d:number|null; estTotalLow:number; estTotalHigh:number; est30dLow:number; est30dHigh:number; currency:string; }
+interface YTData { platform:"youtube"; channel:YTChannel; videos:YTVideo[]; earnings?:YTEarnings; fetchedAt:number; error?:string; }
 
 interface FBPage { id:string; name:string; about:string; category:string; picture:string; cover:string; fanCount:number; followersCount:number; talkingAbout:number; }
 interface FBInsights { weeklyImpressions:number; weeklyReach:number; weeklyEngaged:number; weeklyEngagement:number; weeklyViews:number; }
 interface FBPost { id:string; message:string; createdAt:string; picture:string; likes:number; comments:number; shares:number; }
-interface FBData { platform:"facebook"; page:FBPage; insights:FBInsights; posts:FBPost[]; fetchedAt:number; error?:string; }
+interface FBEarnings { estMonthlyLow:number; estMonthlyHigh:number; currency:string; }
+interface FBData { platform:"facebook"; page:FBPage; insights:FBInsights; earnings?:FBEarnings; posts:FBPost[]; fetchedAt:number; error?:string; }
 
 interface TTUser { username:string; displayName:string; avatar:string; profileUrl:string; followersCount:number; followingCount:number; likesCount:number; videoCount:number; }
 interface TTVideo { id:string; title:string; cover:string; shareUrl:string; views:number; likes:number; comments:number; shares:number; createdAt:string; duration:number; }
@@ -116,8 +118,14 @@ function TokenExpired({ platform }: { platform: string }) {
 
 // ─── YouTube Tab ──────────────────────────────────────────────────────────────
 
+function fmtUSD(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
 function YouTubeAnalytics({ data }: { data: YTData }) {
-  const { channel, videos } = data;
+  const { channel, videos, earnings } = data;
   const totalVideoViews = videos.reduce((s, v) => s + v.views, 0);
   const totalLikes = videos.reduce((s, v) => s + v.likes, 0);
 
@@ -142,6 +150,55 @@ function YouTubeAnalytics({ data }: { data: YTData }) {
           </div>
         </div>
       </div>
+
+      {/* Earnings */}
+      {earnings && (
+        <div className="relative rounded-[2rem] bg-gradient-to-br from-yellow-950/40 to-card border border-yellow-500/20 overflow-hidden">
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute top-0 left-0 w-64 h-64 bg-yellow-500 rounded-full blur-3xl" />
+          </div>
+          <div className="relative z-10 px-6 py-5 border-b border-yellow-500/20 flex items-center gap-3">
+            <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+              <DollarSign className="w-4 h-4 text-yellow-400" />
+            </div>
+            <h4 className="font-black text-foreground text-lg">الأرباح التقديرية</h4>
+          </div>
+          <div className="relative z-10 p-6 space-y-4">
+            {earnings.realRevenue30d !== null && earnings.realRevenue30d > 0 && (
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-green-500/10 border border-green-500/20">
+                <div className="flex items-center gap-3">
+                  <BadgeDollarSign className="w-5 h-5 text-green-400" />
+                  <div>
+                    <p className="text-xs text-muted-foreground font-semibold">أرباح آخر 30 يوم (حقيقية)</p>
+                    <p className="text-xs text-green-400/70 mt-0.5">من YouTube Analytics</p>
+                  </div>
+                </div>
+                <span className="text-xl font-black text-green-400">{fmtUSD(earnings.realRevenue30d)}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
+                <p className="text-xs text-muted-foreground font-semibold mb-1">الأرباح الكلية التقديرية</p>
+                <p className="text-xs text-yellow-400/60 mb-2">بناءً على إجمالي {fmtNum(channel.viewCount)} مشاهدة</p>
+                <p className="text-lg font-black text-yellow-400">
+                  {fmtUSD(earnings.estTotalLow)} – {fmtUSD(earnings.estTotalHigh)}
+                </p>
+              </div>
+              <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20">
+                <p className="text-xs text-muted-foreground font-semibold mb-1">أرباح آخر 10 فيديوهات (تقديرية)</p>
+                <p className="text-xs text-yellow-400/60 mb-2">بناءً على {fmtNum(totalVideoViews)} مشاهدة</p>
+                <p className="text-lg font-black text-yellow-400">
+                  {fmtUSD(earnings.est30dLow)} – {fmtUSD(earnings.est30dHigh)}
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground/50 text-center">
+              * الأرباح التقديرية محسوبة بناءً على متوسط RPM ($0.5–$3 لكل 1000 مشاهدة). الأرقام الحقيقية تختلف حسب المنطقة والجمهور والإعلانات.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Channel Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -197,7 +254,7 @@ function YouTubeAnalytics({ data }: { data: YTData }) {
 // ─── Facebook Tab ─────────────────────────────────────────────────────────────
 
 function FacebookAnalytics({ data }: { data: FBData }) {
-  const { page, insights, posts } = data;
+  const { page, insights, earnings, posts } = data;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -220,6 +277,37 @@ function FacebookAnalytics({ data }: { data: FBData }) {
           </div>
         </div>
       </div>
+
+      {/* Earnings */}
+      {earnings && (earnings.estMonthlyLow > 0 || earnings.estMonthlyHigh > 0) && (
+        <div className="relative rounded-[2rem] bg-gradient-to-br from-yellow-950/40 to-card border border-yellow-500/20 overflow-hidden">
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute top-0 left-0 w-64 h-64 bg-yellow-500 rounded-full blur-3xl" />
+          </div>
+          <div className="relative z-10 px-6 py-5 border-b border-yellow-500/20 flex items-center gap-3">
+            <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+              <DollarSign className="w-4 h-4 text-yellow-400" />
+            </div>
+            <h4 className="font-black text-foreground text-lg">الأرباح التقديرية الشهرية</h4>
+          </div>
+          <div className="relative z-10 p-6 space-y-4">
+            <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-foreground">تقدير الأرباح الشهرية</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  بناءً على {fmtNum(insights.weeklyImpressions * 4)} انطباع شهري تقديري
+                </p>
+              </div>
+              <span className="text-xl font-black text-yellow-400">
+                {fmtUSD(earnings.estMonthlyLow)} – {fmtUSD(earnings.estMonthlyHigh)}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground/50 text-center">
+              * محسوب بناءً على متوسط CPM ($0.5–$2 لكل 1000 انطباع). الأرقام الفعلية تختلف حسب نوع المحتوى وسياسات التحقيق.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Page Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

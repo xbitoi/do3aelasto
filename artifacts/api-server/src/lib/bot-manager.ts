@@ -746,6 +746,31 @@ export async function fetchYouTubeAnalytics() {
       }));
     }
 
+    // 5. Estimated/Real earnings
+    const totalViews = parseInt(stats.viewCount ?? "0");
+    const today = new Date().toISOString().split("T")[0];
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+
+    let realRevenue30d: number | null = null;
+    try {
+      const revenueRes = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&metrics=estimatedRevenue&dimensions=day&startDate=${thirtyDaysAgo}&endDate=${today}&sort=day`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } }
+      );
+      if (revenueRes.ok) {
+        const revenueData = await revenueRes.json() as any;
+        if (revenueData.rows?.length) {
+          realRevenue30d = revenueData.rows.reduce((sum: number, row: any[]) => sum + (row[1] ?? 0), 0);
+        }
+      }
+    } catch { /* yt-analytics not granted — use estimate only */ }
+
+    // Estimated earnings: RPM range $0.5–$3 typical, use $1.5 as midpoint
+    const estLow  = parseFloat(((totalViews / 1000) * 0.5).toFixed(2));
+    const estHigh = parseFloat(((totalViews / 1000) * 3.0).toFixed(2));
+    const est30dLow  = parseFloat((((videos.reduce((s,v)=>s+v.views,0)) / 1000) * 0.5).toFixed(2));
+    const est30dHigh = parseFloat((((videos.reduce((s,v)=>s+v.views,0)) / 1000) * 3.0).toFixed(2));
+
     return {
       platform: "youtube",
       channel: {
@@ -760,6 +785,14 @@ export async function fetchYouTubeAnalytics() {
         hiddenSubscriberCount: stats.hiddenSubscriberCount ?? false,
       },
       videos,
+      earnings: {
+        realRevenue30d,
+        estTotalLow: estLow,
+        estTotalHigh: estHigh,
+        est30dLow,
+        est30dHigh,
+        currency: "USD",
+      },
       fetchedAt: Date.now(),
     };
   } catch (err) {
@@ -814,6 +847,11 @@ export async function fetchFacebookAnalytics() {
       shares: p.shares?.count ?? 0,
     }));
 
+    const weeklyImpressions = insights.page_impressions ?? 0;
+    const monthlyImpressions = weeklyImpressions * 4;
+    const fbEstLow  = parseFloat(((monthlyImpressions / 1000) * 0.5).toFixed(2));
+    const fbEstHigh = parseFloat(((monthlyImpressions / 1000) * 2.0).toFixed(2));
+
     return {
       platform: "facebook",
       page: {
@@ -828,11 +866,16 @@ export async function fetchFacebookAnalytics() {
         talkingAbout: pageData.talking_about_count ?? 0,
       },
       insights: {
-        weeklyImpressions: insights.page_impressions ?? 0,
+        weeklyImpressions,
         weeklyReach: insights.page_impressions_unique ?? 0,
         weeklyEngaged: insights.page_engaged_users ?? 0,
         weeklyEngagement: insights.page_post_engagements ?? 0,
         weeklyViews: insights.page_views_total ?? 0,
+      },
+      earnings: {
+        estMonthlyLow: fbEstLow,
+        estMonthlyHigh: fbEstHigh,
+        currency: "USD",
       },
       posts,
       fetchedAt: Date.now(),

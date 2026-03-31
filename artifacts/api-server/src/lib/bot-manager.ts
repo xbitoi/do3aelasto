@@ -1117,7 +1117,15 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     }
 
     // ── أمر النشر ───────────────────────────────────────────────
-    if (text === "نشر" || text === "publish") {
+    const publishKeywords = [
+      "نشر", "انشر", "أنشر", "انشر الفيديو", "نشر الفيديو", "نشر الان",
+      "نشر الآن", "انشر الان", "انشر الآن", "ارسل", "أرسل", "ارفع",
+      "أرفع", "ارفع الفيديو", "ارسل الفيديو", "نشر المقطع", "انشر المقطع",
+      "اريد النشر", "أريد النشر", "نشر على المنصات", "انشر على المنصات",
+      "نشر على القنوات", "انشر على القنوات", "نشر القنوات",
+      "publish", "post", "upload",
+    ];
+    if (publishKeywords.some(kw => text === kw || text.startsWith(kw + " ") || text.endsWith(" " + kw))) {
       await handlePublish(chatId, getSettings());
       return;
     }

@@ -1126,7 +1126,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     }
 
     // ── أمر التوقف ──────────────────────────────────────────────
-    if (text === "توقف" || text === "الغ" || text === "إلغاء" || text === "cancel") {
+    if (text === "توقف" || text.includes("توقف") || text === "الغ" || text === "إلغاء" || text === "cancel") {
       if (activeOps.has(chatId)) {
         cancelledChats.add(chatId);
         await botInstance!.sendMessage(
@@ -1146,7 +1146,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     }
 
     // ── أمر الحالة ──────────────────────────────────────────────
-    if (text === "حالة" || text === "status") {
+    if (text === "حالة" || text.includes("حالة") || text === "status") {
       const op = activeOps.get(chatId);
       const session = chatSessions.get(chatId);
       const allOps = getActiveOps();
@@ -1262,7 +1262,7 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     }
 
     // ── أمر ابدا ────────────────────────────────────────────────
-    if (text === "ابدا" || text === "ابدأ") {
+    if (text === "ابدا" || text === "ابدأ" || text.includes("ابدا") || text.includes("ابدأ")) {
       const session = chatSessions.get(chatId);
       if (!session) {
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-multi-"));
@@ -1290,9 +1290,89 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
         `📹 أرسل فيديوهات مرقمة أو أرسل *ابدا* للمعالجة\n📋 المجمَّع حتى الآن: *${session.videos.length}* فيديو\n\n💡 أرسل *توقف* لإلغاء التجميع`,
         { parse_mode: "Markdown" }
       );
-    } else {
-      await botInstance!.sendMessage(chatId, "🎬 أرسل لي فيديو وسأضع عليه دعاءً بصوت جميل! 🤲\n\nأرسل *حالة* لمعرفة وضع البوت.");
+      return;
     }
+
+    // ── أرقام الاختيار من قائمة "لم أفهم" ───────────────────────
+    if (text === "1") {
+      await botInstance!.sendMessage(chatId, "🎬 *أرسل الفيديو الآن وسأعالجه!* 👇", { parse_mode: "Markdown" });
+      return;
+    }
+    if (text === "2") {
+      await handlePublish(chatId, getSettings());
+      return;
+    }
+    if (text === "3") {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "duaa-multi-"));
+      chatSessions.set(chatId, { state: "collecting", videos: [], tmpDir });
+      await botInstance!.sendMessage(
+        chatId,
+        `✅ *وضع التجميع نشط!*\n\nأرسل الفيديوهات مع الأرقام في وصف كل فيديو:\n• فيديو أول → اكتب *1* في الوصف\n• فيديو ثانٍ → اكتب *2* في الوصف\n\nعندما تنتهي أرسل *ابدا* للمعالجة 🚀`,
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
+    if (text === "4") {
+      // Re-use help keywords path — just trigger help directly
+      const helpText = [
+        `📖 *دليل استخدام بوت الدعاء الذكي* 🤲`,
+        ``,
+        `━━━━━━━━━━━━━━━━`,
+        `🎬 *كيف يعمل البوت؟*`,
+        `أرسل أي فيديو → يعرض عليك خيارين:`,
+        `*1️⃣* نشر الفيديو مباشرةً على القنوات`,
+        `*2️⃣* إضافة دعاء إسلامي بصوت وتأثيرات`,
+        `*3️⃣* إلغاء`,
+        ``,
+        `━━━━━━━━━━━━━━━━`,
+        `📋 *الأوامر المتاحة:*`,
+        ``,
+        `▪️ *مساعدة* — عرض هذه القائمة`,
+        `▪️ *حالة* — معرفة العمليات الجارية`,
+        `▪️ *توقف* — إيقاف المعالجة الحالية`,
+        ``,
+        `▪️ *نشر* — نشر آخر فيديو على كل القنوات`,
+        `▪️ *انشر على يوتيوب* — يوتيوب فقط`,
+        `▪️ *انشر على فيسبوك* — فيسبوك فقط`,
+        `▪️ *انشر على تيك توك* — تيك توك فقط`,
+        ``,
+        `▪️ *ابدا* — بدء وضع دمج عدة فيديوهات`,
+        ``,
+        `━━━━━━━━━━━━━━━━`,
+        `_سبحان الله وبحمده سبحان الله العظيم_ 🤍`,
+      ].join("\n");
+      await botInstance!.sendMessage(chatId, helpText, { parse_mode: "Markdown" });
+      return;
+    }
+
+    // ── رد افتراضي: لم أفهم ──────────────────────────────────────
+    await botInstance!.sendMessage(
+      chatId,
+      [
+        `🤔 *لم أفهم رسالتك!*`,
+        ``,
+        `ماذا تريد أن أفعل؟ اختر:`,
+        ``,
+        `*1️⃣* — إرسال فيديو لإضافة الدعاء عليه`,
+        `*2️⃣* — نشر آخر فيديو على القنوات`,
+        `*3️⃣* — دمج عدة فيديوهات معاً`,
+        `*4️⃣* — مساعدة وشرح الأوامر`,
+        ``,
+        `_أرسل الرقم أو اكتب أمراً مباشرة_ 👇`,
+      ].join("\n"),
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          keyboard: [
+            [{ text: "نشر" }, { text: "مساعدة" }],
+            [{ text: "ابدا" }, { text: "حالة" }],
+            [{ text: "توقف" }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false,
+        },
+      }
+    );
   });
 
   botInstance.on("polling_error", (err) => {

@@ -367,19 +367,30 @@ export async function testTikTokToken(token: string): Promise<{ success: boolean
 
 // ── Social media publishing ───────────────────────────────────────────────
 
-async function generateVideoTitle(geminiKey: string): Promise<string> {
-  const prompt = `اكتب عنواناً قصيراً جذاباً باللغة العربية لفيديو إسلامي يمجّد الله ومعجزاته في الخلق.
+async function generateVideoTitle(geminiKey: string, topic?: string): Promise<string> {
+  const topicLine = topic
+    ? `موضوع الفيديو: "${topic}" — ابنِ العنوان حول هذا الموضوع مع تجليل الله وتمجيده.`
+    : `موضوع الفيديو: عام — اختر مخلوقاً أو ظاهرة طبيعية تجلّي عظمة الله.`;
+
+  const prompt = `أنت متخصص في كتابة عناوين فيديوهات إسلامية احترافية تجمع بين الجمال والمحتوى الديني.
+
+${topicLine}
+
 الشروط الصارمة:
-- من 4 إلى 6 كلمات فقط
-- يشمل 2 إلى 3 رموز تعبيرية مناسبة (مثل: 🦁 🌿 ✨ 🤲 🌊 🦅 💫 🌺 🦋 🐬 🌄)
-- يعبّر عن عظمة الله وإبداع خلقه وتسبيحه
-- لا تكتب سوى العنوان فقط بدون أي شرح أو مقدمة
-أمثلة مقبولة:
-🦁 سبحان الله في بديع خلقه ✨
-🌊 من آيات الله في الأرض 🤲
-🦅 الله أكبر في إبداع خلقه 💫
+- من 4 إلى 7 كلمات فقط لا أكثر
+- يشمل 2 إلى 3 رموز تعبيرية مناسبة للموضوع
+- يذكر الله أو يسبّحه أو يجلّله بشكل صريح
+- أسلوب راقٍ شاعري يشدّ القارئ
+- لا تكتب سوى العنوان فقط بدون أي شرح أو مقدمة أو علامات اقتباس
+
+أمثلة على الأسلوب المطلوب:
+🦁 سبحان الله في خلق الأسد ✨
+🌊 الله أكبر في أعماق البحار 💫
+🦅 تسبّح له الطيور بحمده 🌿
+🐈 من آيات الله في خلق القطط 🤲
 العنوان:`;
-  const fallbacks = [
+
+  const fallbacksGeneral = [
     "🦁 سبحان الله في بديع خلقه ✨",
     "🌿 من آيات الله في الخلق 💫",
     "🦅 الله أكبر في إبداع الكون 🌟",
@@ -389,27 +400,29 @@ async function generateVideoTitle(geminiKey: string): Promise<string> {
     "🐬 آيات الله في البحار والأنهار 🌟",
     "🌄 جلال الله في صنعه البديع 🤲",
   ];
+  const fallbackTopic = topic
+    ? `✨ سبحان الله في خلق ${topic} 🤲`
+    : fallbacksGeneral[Math.floor(Math.random() * fallbacksGeneral.length)];
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 1.3, maxOutputTokens: 80 },
+      generationConfig: { temperature: 1.2, maxOutputTokens: 100 },
     });
     const raw = result.response.text().trim()
       .split("\n")[0]
-      .replace(/^["'«»\-–—*#]+|["'«»\-–—*#]+$/g, "")
+      .replace(/^["'«»\-–—*#:]+|["'«»\-–—*#:]+$/g, "")
       .trim();
-    if (raw.length >= 10 && raw.length <= 120) {
+    if (raw.length >= 10 && raw.length <= 150) {
       addLog(`✅ العنوان الذكي: ${raw}`, "success");
       return raw;
     }
   } catch (err) {
     addLog(`⚠️ فشل توليد العنوان: ${err instanceof Error ? err.message.slice(0, 50) : "خطأ"}`, "warning");
   }
-  const fb = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-  addLog(`📌 العنوان الاحتياطي: ${fb}`, "info");
-  return fb;
+  addLog(`📌 العنوان الاحتياطي: ${fallbackTopic}`, "info");
+  return fallbackTopic;
 }
 
 function formatArabicDate(): string {
@@ -781,7 +794,7 @@ async function reencodeHighQuality(inputPath: string, outputPath: string): Promi
 
 type PlatformFilter = "youtube" | "facebook" | "tiktok";
 
-async function handlePublish(chatId: number, settings: AppSettings, platformFilter?: PlatformFilter[]) {
+async function handlePublish(chatId: number, settings: AppSettings, platformFilter?: PlatformFilter[], topic?: string) {
   const last = loadLastVideo();
   if (!last) {
     await botInstance!.sendMessage(
@@ -831,7 +844,7 @@ async function handlePublish(chatId: number, settings: AppSettings, platformFilt
 
   // ── Step 1: Generate AI title ─────────────────────────────────────────
   addLog("🏷️ جاري توليد العنوان...", "processing");
-  const title = await generateVideoTitle(geminiKeyStore || settings.youtubeClientId || "");
+  const title = await generateVideoTitle(geminiKeyStore || settings.youtubeClientId || "", topic);
 
   // ── Step 2: Re-encode at highest quality for publishing ───────────────
   const hqVideoPath = last.videoPath.replace(/\.mp4$/, "-hq.mp4");
@@ -1249,9 +1262,9 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
     );
     if (isPublishCmd) {
       // كشف المنصة المذكورة في الرسالة
-      const mentionsYT  = /يوتيوب|يوتيوب|youtube|yt/i.test(text);
-      const mentionsFB  = /فيسبوك|فيس بوك|facebook|fb/i.test(text);
-      const mentionsTT  = /تيك توك|تيك\s*توك|tiktok|tt/i.test(text);
+      const mentionsYT = /يوتيوب|youtube|yt/i.test(text);
+      const mentionsFB = /فيسبوك|فيس بوك|facebook|fb/i.test(text);
+      const mentionsTT = /تيك توك|تيك\s*توك|tiktok|tt/i.test(text);
 
       let filter: PlatformFilter[] | undefined;
       if (mentionsYT || mentionsFB || mentionsTT) {
@@ -1261,7 +1274,22 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
         if (mentionsTT) filter.push("tiktok");
       }
 
-      await handlePublish(chatId, getSettings(), filter);
+      // ── استخلاص الموضوع من الرسالة ──────────────────────────────
+      // يُزيل كلمات الأمر والمنصات وكلمات الربط ليبقى الموضوع
+      const stopWords = [
+        ...publishTriggers,
+        "يوتيوب", "youtube", "yt", "فيسبوك", "فيس بوك", "facebook", "fb",
+        "تيك توك", "تيك توك", "tiktok", "tt",
+        "على", "في", "و", "الان", "الآن", "القنوات", "المنصات", "الفيديو", "المقطع",
+      ];
+      let topicText = text;
+      for (const w of stopWords) {
+        topicText = topicText.replace(new RegExp(`(^|\\s)${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`, "gi"), " ");
+      }
+      const topic = topicText.replace(/\s+/g, " ").trim() || undefined;
+      if (topic) addLog(`🎯 موضوع العنوان: "${topic}"`, "info");
+
+      await handlePublish(chatId, getSettings(), filter, topic);
       return;
     }
 

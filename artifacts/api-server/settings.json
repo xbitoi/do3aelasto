@@ -14,7 +14,7 @@
   "showBackground": true,
   "geminiModel": "gemma-3-27b-it",
   "originalVolume": 35,
-  "duaaVolume": 240,
+  "duaaVolume": 255,
   "muteOriginal": false,
   "muteDuaa": false,
   "wordEffect": "random",
@@ -25,5 +25,17 @@
   "youtubeClientSecret": "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",
   "facebookToken": "EAAbRUXJkuu4BRMKwVQ6qa5WuhUdtXB7mmhVSZBD7thAAM1VZC5XgstldMzhLK5nCLhlKnexnVTNAOGTXjZBMxAmZBaw9Aof4V5c54AvZBbpK6c2mZCnSOgLqSeZCni1Kb2ii9o4TCd1GBFXQHcf0QZCIWNUdajHNcZArBKZCfYNhckAOPySzyOvLOQbMb2yS2UYH8KU9x3Them4O9A2d2R1WFsV6XNGVutQFSHKwwBjrFmWtIZD",
   "tiktokToken": "",
-  "publishDescription": "بسم الله نبدا"
+  "publishDescription": "بسم الله نبدا",
+  "aspectRatio": "9:16",
+  "scheduledFbPostEnabled": false,
+  "scheduledFbPostTime": "08:00",
+  "scheduledFbPostDays": "all",
+  "youtubeAutoCaption": true,
+  "captionTranslateLang": "en",
+  "autoReportEnabled": true,
+  "autoReportChatId": "",
+  "weeklyReportDay": 5,
+  "smartBotEnabled": true,
+  "managedChannelIds": "",
+  "smartBotAdminChatId": ""
 }

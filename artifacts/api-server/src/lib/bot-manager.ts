@@ -676,14 +676,27 @@ export { getAnalyticsSummary, recordPublish };
 
 export async function fetchYouTubeAnalytics() {
   const settings = getSettings();
-  const token = settings.youtubeToken;
-  if (!token) return { error: "لم يتم ربط حساب يوتيوب بعد" };
+  const refreshToken = settings.youtubeToken;
+  const clientId = settings.youtubeClientId;
+  const clientSecret = settings.youtubeClientSecret;
+  if (!refreshToken) return { error: "لم يتم ربط حساب يوتيوب بعد" };
 
   try {
+    // 0. Refresh the access token first (youtubeToken is a refresh token)
+    let accessToken = refreshToken;
+    if (clientId && clientSecret) {
+      const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+      if (tokenRes.accessToken) {
+        accessToken = tokenRes.accessToken;
+      } else {
+        return { error: `فشل تجديد رمز يوتيوب: ${tokenRes.error || "خطأ غير محدد"}` };
+      }
+    }
+
     // 1. Channel info + statistics
     const chRes = await fetch(
-      "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings&mine=true",
-      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+      "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true",
+      { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } }
     );
     const chData = await chRes.json() as any;
     if (!chRes.ok) {

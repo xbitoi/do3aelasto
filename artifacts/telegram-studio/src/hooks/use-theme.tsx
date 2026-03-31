@@ -17,7 +17,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     try {
       return (localStorage.getItem("theme") as Theme) || "dark";
     } catch {
-      return "dark";
+      return "light";
     }
   });
 

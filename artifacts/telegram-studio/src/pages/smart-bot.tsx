@@ -128,7 +128,7 @@ export function SmartBot() {
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-4xl">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-4xl font-black mb-2 tracking-tight text-foreground">البوت الذكي</h2>
+          <h2 className="text-2xl sm:text-4xl font-black mb-1 sm:mb-2 tracking-tight text-foreground">البوت الذكي</h2>
           <p className="text-lg font-semibold text-muted-foreground">الإدارة التلقائية والجدولة والتقارير</p>
         </div>
         {isPending && (

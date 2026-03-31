@@ -33,7 +33,7 @@ export function Guide() {
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-5xl pb-20">
       <div className="mb-10">
-        <h2 className="text-4xl font-black mb-3 tracking-tight text-foreground">دليل الاستخدام الشامل</h2>
+        <h2 className="text-2xl sm:text-4xl font-black mb-2 sm:mb-3 tracking-tight text-foreground">دليل الاستخدام الشامل</h2>
         <p className="text-lg font-semibold text-muted-foreground">تعرف على كيفية إعداد واستخدام استوديو البوت بخطوات واضحة وبسيطة</p>
       </div>
 

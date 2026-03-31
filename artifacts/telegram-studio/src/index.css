@@ -117,6 +117,18 @@
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
 ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
 
+/* ─── Hide scrollbar (keep scrollable) ─── */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* ─── iOS safe area bottom padding ─── */
+.pb-safe {
+  padding-bottom: max(0.625rem, env(safe-area-inset-bottom));
+}
+
 /* ─── Sidebar bg via CSS var ─── */
 .sidebar-surface {
   background-color: var(--color-sidebar-bg);

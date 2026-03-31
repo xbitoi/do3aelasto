@@ -252,7 +252,7 @@ export function AdvancedSettings() {
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-4xl">
       <div className="mb-10 flex items-center justify-between">
         <div>
-          <h2 className="text-4xl font-black mb-3 tracking-tight text-foreground">الإعدادات المتقدمة</h2>
+          <h2 className="text-2xl sm:text-4xl font-black mb-2 sm:mb-3 tracking-tight text-foreground">الإعدادات المتقدمة</h2>
           <p className="text-lg font-semibold text-muted-foreground">المفاتيح وخيارات المعالجة المتقدمة</p>
         </div>
         {isPending && (

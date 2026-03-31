@@ -643,42 +643,44 @@ export function Analytics() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-4xl">
+    <div className="space-y-5 sm:space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-4xl font-black mb-2 tracking-tight text-foreground">تحليل الأداء</h2>
-          <p className="text-lg font-semibold text-muted-foreground">بيانات حقيقية من كل منصة</p>
+          <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-foreground">تحليل الأداء</h2>
+          <p className="text-sm sm:text-lg font-semibold text-muted-foreground mt-0.5">بيانات حقيقية من كل منصة</p>
         </div>
         <button
           onClick={() => fetchPlatform(active, true)}
           disabled={loading}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-card border border-border hover:border-primary/40 text-sm font-black text-foreground transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl bg-card border border-border hover:border-primary/40 text-sm font-black text-foreground transition-all disabled:opacity-50 shrink-0"
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          تحديث
+          <span className="hidden sm:inline">تحديث</span>
         </button>
       </div>
 
-      {/* Platform Tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {PLATFORMS.map(({ id, label, icon: Icon, accent }) => (
-          <button
-            key={id}
-            onClick={() => setActive(id)}
-            className={cn(
-              "flex items-center gap-2 px-5 py-2.5 rounded-2xl border font-black text-sm transition-all duration-200",
-              active === id ? accentMap[accent] : inactiveTab
-            )}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-          </button>
-        ))}
+      {/* Platform Tabs — horizontal scroll on mobile */}
+      <div className="relative">
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap scrollbar-hide">
+          {PLATFORMS.map(({ id, label, icon: Icon, accent }) => (
+            <button
+              key={id}
+              onClick={() => setActive(id)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 sm:px-5 rounded-xl sm:rounded-2xl border font-black text-sm transition-all duration-200 shrink-0",
+                active === id ? accentMap[accent] : inactiveTab
+              )}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Content */}
-      <div className="min-h-[400px]">
+      <div className="min-h-[300px]">
         {renderContent()}
       </div>
     </div>

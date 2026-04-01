@@ -33,6 +33,8 @@ export interface AppSettings {
   duaaStyle: string;
   videoQuality: string;
   bgOpacity: number;
+  bgColor: string;
+  bgColorMode: string;
   showBackground: boolean;
   geminiModel: string;
   originalVolume: number;
@@ -82,6 +84,8 @@ export const defaultSettings: AppSettings = {
   duaaStyle: "تضرع وخشوع",
   videoQuality: "fast",
   bgOpacity: 40,
+  bgColor: "#3B82F6",
+  bgColorMode: "fixed",
   showBackground: true,
   geminiModel: "auto",
   originalVolume: 90,

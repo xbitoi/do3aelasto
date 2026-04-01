@@ -104,7 +104,10 @@ def _apply_word_effect(static_arr, t: float, duration: float, effect: str):
     fi = min(0.25, duration * 0.3)
     fo_start = max(0.0, duration - min(0.25, duration * 0.3))
 
-    if effect == 'fade_smooth':
+    if effect == 'fade_smooth_static':
+        pass
+
+    elif effect == 'fade_smooth':
         alpha = _fade_alpha(t, duration, fi, fo_start)
         result[:, :, 3] *= alpha
 
@@ -266,6 +269,8 @@ def _render_word_pil(
     text_color,
     active_color,
     stroke_thickness,
+    bg_color=None,
+    bg_opacity=40,
 ):
     from PIL import Image, ImageDraw, ImageFont
     from ai_processor import reshape_arabic
@@ -330,11 +335,15 @@ def _render_word_pil(
             rect_x2 = rect_x + active_w + 12
             rect_y2 = img_h // 2 + font_size // 2 + 6
 
+            fill_color = bg_color if bg_color is not None else active_color
+            fill_alpha = max(5, min(255, int(bg_opacity / 100 * 255)))
+            outline_alpha = min(255, int(fill_alpha * 1.8))
+            glow_alpha = max(5, fill_alpha // 4)
             bg_draw.rounded_rectangle(
                 [rect_x, rect_y, rect_x2, rect_y2],
                 radius=8,
-                fill=(*active_color, 65),
-                outline=(*active_color, 180),
+                fill=(*fill_color, fill_alpha),
+                outline=(*fill_color, outline_alpha),
                 width=2
             )
 
@@ -343,7 +352,7 @@ def _render_word_pil(
             ig_draw.rounded_rectangle(
                 [rect_x + 2, rect_y + 2, rect_x2 - 2, rect_y2 - 2],
                 radius=6,
-                fill=(*active_color, 20),
+                fill=(*fill_color, glow_alpha),
             )
 
             img = Image.alpha_composite(img, inner_glow)
@@ -643,10 +652,31 @@ def _merge_and_process_sync(
     y_pixel = int((y_position / 100) * video_h)
 
     word_effect_setting = settings.get("word_effect", "random")
-    if word_effect_setting == "random":
+    if word_effect_setting == "none":
+        chosen_effect = "none"
+    elif word_effect_setting == "random":
         chosen_effect = random.choice(WORD_EFFECTS)
     else:
         chosen_effect = word_effect_setting if word_effect_setting in WORD_EFFECTS else random.choice(WORD_EFFECTS)
+
+    show_background = settings.get("show_background", True)
+    bg_opacity_val = settings.get("bg_opacity", 40)
+    bg_color_mode = settings.get("bg_color_mode", "fixed")
+    RANDOM_BG_COLORS = [
+        (99, 102, 241), (59, 130, 246), (16, 185, 129), (245, 158, 11),
+        (239, 68, 68), (139, 92, 246), (236, 72, 153), (6, 182, 212),
+        (34, 197, 94), (249, 115, 22),
+    ]
+    if not show_background:
+        bg_color_for_render = None
+        bg_opacity_for_render = 0
+    elif bg_color_mode == "random":
+        bg_color_for_render = random.choice(RANDOM_BG_COLORS)
+        bg_opacity_for_render = bg_opacity_val
+    else:
+        raw_bg = settings.get("bg_color", "#3B82F6")
+        bg_color_for_render = hex_to_rgb(raw_bg) if show_background else None
+        bg_opacity_for_render = bg_opacity_val
 
     text_clips = []
 
@@ -668,16 +698,27 @@ def _merge_and_process_sync(
             text_color=text_color,
             active_color=active_color,
             stroke_thickness=stroke_thickness,
+            bg_color=bg_color_for_render,
+            bg_opacity=bg_opacity_for_render,
         )
         rgba_arr = np.array(rgba_img)
 
-        animated_clip = create_animated_word_clip(
-            rgba_arr=rgba_arr,
-            effect=chosen_effect,
-            duration=word_duration,
-            y_pixel=y_pixel,
-            fps=target_fps,
-        )
+        if chosen_effect == "none":
+            animated_clip = create_animated_word_clip(
+                rgba_arr=rgba_arr,
+                effect="fade_smooth_static",
+                duration=word_duration,
+                y_pixel=y_pixel,
+                fps=target_fps,
+            )
+        else:
+            animated_clip = create_animated_word_clip(
+                rgba_arr=rgba_arr,
+                effect=chosen_effect,
+                duration=word_duration,
+                y_pixel=y_pixel,
+                fps=target_fps,
+            )
         animated_clip = animated_clip.set_start(start_t)
         text_clips.append(animated_clip)
 
@@ -692,6 +733,8 @@ def _merge_and_process_sync(
             text_color=tuple(int(c * 0.6) for c in text_color),
             active_color=active_color,
             stroke_thickness=stroke_thickness,
+            bg_color=bg_color_for_render,
+            bg_opacity=0,
         )
         base_arr = np.array(base_rgba)
         img_h_base = base_arr.shape[0]

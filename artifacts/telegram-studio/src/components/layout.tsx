@@ -159,7 +159,7 @@ function BottomNav() {
       "lg:hidden fixed bottom-0 inset-x-0 z-30 flex items-stretch border-t",
       "pb-safe", // safe area for iOS
       isDark
-        ? "bg-[hsl(222_47%_7%)/95] backdrop-blur-xl border-border/60"
+        ? "bg-sidebar-bg/95 backdrop-blur-xl border-border/60"
         : "bg-white/95 backdrop-blur-xl border-border shadow-[0_-1px_12px_rgba(0,0,0,0.08)]"
     )}>
       {NAV_ITEMS.map((item) => {
@@ -182,7 +182,7 @@ function BottomNav() {
             <span className={cn(
               "flex items-center justify-center w-8 h-8 rounded-xl transition-all duration-200",
               active
-                ? isDark ? "bg-primary/20 text-primary" : "bg-primary/12 text-primary"
+                ? "bg-gradient-to-br from-primary/30 to-accent/20 text-primary shadow-sm"
                 : isDark ? "text-muted-foreground" : "text-muted-foreground"
             )}>
               <item.icon className="w-4.5 h-4.5" />
@@ -216,7 +216,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside className={cn(
         "hidden lg:flex flex-col w-64 xl:w-72 shrink-0 border-l h-screen sticky top-0 z-30",
         isDark
-          ? "bg-[hsl(222_47%_8%)] border-[hsl(217_32%_13%)]"
+          ? "bg-sidebar-bg border-sidebar-border"
           : "bg-white border-border shadow-sm"
       )}>
         <SidebarContent />
@@ -229,7 +229,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <header className={cn(
           "lg:hidden sticky top-0 z-20 border-b",
           isDark
-            ? "bg-[hsl(222_47%_6%)/90] backdrop-blur-xl border-border/50"
+            ? "bg-background/90 backdrop-blur-xl border-border/50"
             : "bg-white/95 backdrop-blur-xl border-border"
         )}>
           <div className="flex items-center justify-between px-4 h-14">

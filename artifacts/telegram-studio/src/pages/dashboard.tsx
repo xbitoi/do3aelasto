@@ -229,14 +229,14 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
 
   return (
     <PremiumCard title="المظهر والصوت" icon={Paintbrush}>
-      <div className="flex gap-2 mb-8 bg-black/40 p-1.5 rounded-2xl border border-border/50 shadow-inner">
-        <button onClick={() => setTab('text')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'text' ? "bg-card shadow-lg text-primary border border-border/50" : "text-muted-foreground hover:text-foreground")}>
+      <div className="flex gap-2 mb-8 bg-primary/5 p-1.5 rounded-2xl border border-primary/15 shadow-inner">
+        <button onClick={() => setTab('text')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'text' ? "bg-gradient-to-r from-primary/90 to-accent/80 shadow-lg text-white" : "text-muted-foreground hover:text-foreground hover:bg-white/5")}>
           <LayoutTemplate className="w-4 h-4" /> النص
         </button>
-        <button onClick={() => setTab('color')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'color' ? "bg-card shadow-lg text-primary border border-border/50" : "text-muted-foreground hover:text-foreground")}>
+        <button onClick={() => setTab('color')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'color' ? "bg-gradient-to-r from-pink-500/80 to-violet-500/80 shadow-lg text-white" : "text-muted-foreground hover:text-foreground hover:bg-white/5")}>
           <Palette className="w-4 h-4" /> الألوان
         </button>
-        <button onClick={() => setTab('audio')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'audio' ? "bg-card shadow-lg text-primary border border-border/50" : "text-muted-foreground hover:text-foreground")}>
+        <button onClick={() => setTab('audio')} className={cn("flex-1 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2", tab === 'audio' ? "bg-gradient-to-r from-emerald-500/80 to-teal-500/80 shadow-lg text-white" : "text-muted-foreground hover:text-foreground hover:bg-white/5")}>
           <Mic2 className="w-4 h-4" /> الصوت
         </button>
       </div>
@@ -255,8 +255,8 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              <Slider label="ارتفاع السطر" min={1.0} max={3.0} step={0.1} value={settings.lineHeight} onChange={(v: number) => setSettings({...settings, lineHeight: v})} unit="x" />
              <Slider label="سُمك الحدود" min={0} max={10} step={1} value={settings.strokeThickness} onChange={(v: number) => setSettings({...settings, strokeThickness: v})} unit="px" />
 
-             <div className="pt-3 border-t border-border/50 space-y-3">
-               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+             <div className="pt-3 border-t border-primary/20 space-y-3">
+               <p className="text-xs font-bold text-primary/80 flex items-center gap-1.5">
                  <Layers className="w-3.5 h-3.5 text-primary" />
                  خلفية النص
                </p>
@@ -266,18 +266,20 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  onChange={(v: boolean) => setSettings({...settings, showBackground: v})}
                />
                {(settings.showBackground ?? true) && (
-                 <Slider
-                   label="شفافية الخلفية"
-                   min={0} max={100} step={5}
-                   value={settings.bgOpacity ?? 40}
-                   onChange={(v: number) => setSettings({...settings, bgOpacity: v})}
-                   unit="%"
-                 />
+                 <>
+                   <Slider
+                     label="كثافة الخلفية"
+                     min={5} max={100} step={5}
+                     value={settings.bgOpacity ?? 40}
+                     onChange={(v: number) => setSettings({...settings, bgOpacity: v})}
+                     unit="%"
+                   />
+                 </>
                )}
              </div>
 
-             <div className="pt-3 border-t border-border/50 space-y-3">
-               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">📐 نسبة العرض للارتفاع</p>
+             <div className="pt-3 border-t border-accent/20 space-y-3">
+               <p className="text-xs font-bold text-accent/80 flex items-center gap-1.5">📐 نسبة العرض للارتفاع</p>
                <div className="grid grid-cols-2 gap-2">
                  {[
                    {label: "9:16", desc: "ريلز / شورتس", icon: "📱"},
@@ -306,10 +308,11 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                </p>
              </div>
 
-             <div className="pt-3 border-t border-border/50 space-y-4">
-               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">✨ تأثيرات الحركة</p>
+             <div className="pt-3 border-t border-warning/20 space-y-4">
+               <p className="text-xs font-bold text-warning/80 flex items-center gap-1.5">✨ تأثيرات الحركة</p>
                <Select label="🔤 تأثير ظهور الكلمات" value={settings.wordEffect ?? "random"} onChange={(v: string) => setSettings({...settings, wordEffect: v})} options={[
                  {label: "عشوائي 🎲", value: "random"},
+                 {label: "بدون تأثير ⛔", value: "none"},
                  {label: "تلاشي ناعم ✨", value: "fade_smooth"},
                  {label: "تكبير بوب 💥", value: "zoom_pop"},
                  {label: "ارتداد نابضي 🏀", value: "bounce_spring"},
@@ -354,9 +357,83 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
         )}
         
         {tab === 'color' && (
-           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+           <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
              <ColorPicker label="لون النص الأساسي" value={settings.textColor} onChange={(v: string) => setSettings({...settings, textColor: v})} />
              <ColorPicker label="لون الكلمة النشطة" value={settings.activeColor} onChange={(v: string) => setSettings({...settings, activeColor: v})} />
+
+             {(settings.showBackground ?? true) && (
+               <div className="pt-3 border-t border-border/50 space-y-3">
+                 <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                   <Layers className="w-3.5 h-3.5 text-primary" />
+                   لون خلفية الكلمة النشطة
+                 </p>
+
+                 {/* Mode toggle */}
+                 <div className="grid grid-cols-2 gap-2">
+                   <button
+                     onClick={() => setSettings({...settings, bgColorMode: "fixed"})}
+                     className={cn(
+                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                       (settings.bgColorMode ?? "fixed") === "fixed"
+                         ? "border-primary bg-primary/15 text-primary shadow-[0_0_10px_rgba(99,102,241,0.2)]"
+                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                     )}
+                   >🎨 لون محدد</button>
+                   <button
+                     onClick={() => setSettings({...settings, bgColorMode: "random"})}
+                     className={cn(
+                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                       (settings.bgColorMode ?? "fixed") === "random"
+                         ? "border-amber-500/70 bg-amber-500/15 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                     )}
+                   >🎲 عشوائي كل مرة</button>
+                 </div>
+
+                 {(settings.bgColorMode ?? "fixed") === "fixed" && (
+                   <>
+                     {/* Preset palette */}
+                     <div className="grid grid-cols-5 gap-2">
+                       {[
+                         { color: "#6366F1", label: "بنفسجي" },
+                         { color: "#3B82F6", label: "أزرق" },
+                         { color: "#10B981", label: "أخضر" },
+                         { color: "#F59E0B", label: "ذهبي" },
+                         { color: "#EF4444", label: "أحمر" },
+                         { color: "#8B5CF6", label: "بنفسجي غامق" },
+                         { color: "#EC4899", label: "وردي" },
+                         { color: "#06B6D4", label: "سماوي" },
+                         { color: "#F97316", label: "برتقالي" },
+                         { color: "#FFFFFF", label: "أبيض" },
+                       ].map((p) => (
+                         <button
+                           key={p.color}
+                           title={p.label}
+                           onClick={() => setSettings({...settings, bgColor: p.color})}
+                           className={cn(
+                             "w-full aspect-square rounded-xl border-2 transition-all hover:scale-110",
+                             (settings.bgColor ?? "#3B82F6") === p.color
+                               ? "border-white scale-110 shadow-lg"
+                               : "border-transparent"
+                           )}
+                           style={{ backgroundColor: p.color }}
+                         />
+                       ))}
+                     </div>
+                     <ColorPicker label="لون مخصص" value={settings.bgColor ?? "#3B82F6"} onChange={(v: string) => setSettings({...settings, bgColor: v})} />
+                   </>
+                 )}
+
+                 {(settings.bgColorMode ?? "fixed") === "random" && (
+                   <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl px-4 py-3">
+                     <span className="text-lg">🎲</span>
+                     <p className="text-xs text-foreground/70 leading-relaxed">
+                       سيطبق <span className="text-amber-400 font-black">لون مختلف</span> عشوائياً على خلفية الكلمة في كل فيديو — تنوع تلقائي بكل معالجة
+                     </p>
+                   </div>
+                 )}
+               </div>
+             )}
            </div>
         )}
         

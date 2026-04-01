@@ -13,7 +13,7 @@
   "bgOpacity": 45,
   "bgColor": "#ff0000",
   "bgColorMode": "fixed",
-  "showBackground": false,
+  "showBackground": true,
   "shadowColor": "#14532D",
   "shadowColorMode": "fixed",
   "geminiModel": "gemma-3-27b-it",

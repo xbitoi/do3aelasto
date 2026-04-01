@@ -3962,7 +3962,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
                 rgb = word_colors[g_idx]
                 draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
             elif g_idx == active_idx:
-                if show_background and bg_mode != 'none':
+                if bg_mode != 'none':
                     hl_pad_x = max(8, int(font_size * 0.18))
                     hl_pad_y = max(4, int(font_size * 0.1))
                     hl_alpha = min(255, int(bg_opacity_pct * 255 / 100))

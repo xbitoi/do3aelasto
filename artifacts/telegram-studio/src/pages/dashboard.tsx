@@ -395,88 +395,89 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              <ColorPicker label="لون النص الأساسي" value={settings.textColor} onChange={(v: string) => setSettings({...settings, textColor: v})} />
              <ColorPicker label="لون الكلمة النشطة" value={settings.activeColor} onChange={(v: string) => setSettings({...settings, activeColor: v})} />
 
-             {(settings.showBackground ?? true) && (
-               <div className="pt-3 border-t border-border/50 space-y-3">
-                 <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
-                   <Layers className="w-3.5 h-3.5 text-primary" />
-                   لون خلفية الكلمة النشطة
-                 </p>
-
-                 {/* Mode toggle */}
-                 <div className="grid grid-cols-3 gap-2">
-                   <button
-                     onClick={() => setSettings({...settings, bgColorMode: "fixed"})}
-                     className={cn(
-                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
-                       (settings.bgColorMode ?? "fixed") === "fixed"
-                         ? "border-primary bg-primary/15 text-primary shadow-[0_0_10px_rgba(99,102,241,0.2)]"
-                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
-                     )}
-                   >🎨 لون محدد</button>
-                   <button
-                     onClick={() => setSettings({...settings, bgColorMode: "random"})}
-                     className={cn(
-                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
-                       (settings.bgColorMode ?? "fixed") === "random"
-                         ? "border-amber-500/70 bg-amber-500/15 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
-                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
-                     )}
-                   >🎲 عشوائي</button>
-                   <button
-                     onClick={() => setSettings({...settings, bgColorMode: "none"})}
-                     className={cn(
-                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
-                       (settings.bgColorMode ?? "fixed") === "none"
-                         ? "border-destructive/70 bg-destructive/15 text-destructive shadow-[0_0_10px_rgba(239,68,68,0.2)]"
-                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
-                     )}
-                   >⛔ توقف</button>
-                 </div>
-
-                 {(settings.bgColorMode ?? "fixed") === "fixed" && (
-                   <>
-                     {/* Preset palette */}
-                     <div className="grid grid-cols-5 gap-2">
-                       {[
-                         { color: "#6366F1", label: "بنفسجي" },
-                         { color: "#3B82F6", label: "أزرق" },
-                         { color: "#10B981", label: "أخضر" },
-                         { color: "#F59E0B", label: "ذهبي" },
-                         { color: "#EF4444", label: "أحمر" },
-                         { color: "#8B5CF6", label: "بنفسجي غامق" },
-                         { color: "#EC4899", label: "وردي" },
-                         { color: "#06B6D4", label: "سماوي" },
-                         { color: "#F97316", label: "برتقالي" },
-                         { color: "#FFFFFF", label: "أبيض" },
-                       ].map((p) => (
-                         <button
-                           key={p.color}
-                           title={p.label}
-                           onClick={() => setSettings({...settings, bgColor: p.color})}
-                           className={cn(
-                             "w-full aspect-square rounded-xl border-2 transition-all hover:scale-110",
-                             (settings.bgColor ?? "#3B82F6") === p.color
-                               ? "border-white scale-110 shadow-lg"
-                               : "border-transparent"
-                           )}
-                           style={{ backgroundColor: p.color }}
-                         />
-                       ))}
-                     </div>
-                     <ColorPicker label="لون مخصص" value={settings.bgColor ?? "#3B82F6"} onChange={(v: string) => setSettings({...settings, bgColor: v})} />
-                   </>
-                 )}
-
-                 {(settings.bgColorMode ?? "fixed") === "random" && (
-                   <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl px-4 py-3">
-                     <span className="text-lg">🎲</span>
-                     <p className="text-xs text-foreground/70 leading-relaxed">
-                       سيطبق <span className="text-amber-400 font-black">لون مختلف</span> عشوائياً على خلفية الكلمة في كل فيديو — تنوع تلقائي بكل معالجة
-                     </p>
-                   </div>
-                 )}
+             <div className="pt-3 border-t border-border/50 space-y-3">
+               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                 <Layers className="w-3.5 h-3.5 text-primary" />
+                 لون خلفية الكلمة النشطة
+               </p>
+               <div className="grid grid-cols-3 gap-2">
+                 <button
+                   onClick={() => setSettings({...settings, bgColorMode: "fixed"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.bgColorMode ?? "fixed") === "fixed"
+                       ? "border-primary bg-primary/15 text-primary shadow-[0_0_10px_rgba(99,102,241,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >🎨 لون محدد</button>
+                 <button
+                   onClick={() => setSettings({...settings, bgColorMode: "random"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.bgColorMode ?? "fixed") === "random"
+                       ? "border-amber-500/70 bg-amber-500/15 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >🎲 عشوائي</button>
+                 <button
+                   onClick={() => setSettings({...settings, bgColorMode: "none"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.bgColorMode ?? "fixed") === "none"
+                       ? "border-destructive/70 bg-destructive/15 text-destructive shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >⛔ توقف</button>
                </div>
-             )}
+               {(settings.bgColorMode ?? "fixed") === "fixed" && (
+                 <>
+                   <div className="grid grid-cols-5 gap-2">
+                     {[
+                       { color: "#6366F1", label: "بنفسجي" },
+                       { color: "#3B82F6", label: "أزرق" },
+                       { color: "#10B981", label: "أخضر" },
+                       { color: "#F59E0B", label: "ذهبي" },
+                       { color: "#EF4444", label: "أحمر" },
+                       { color: "#8B5CF6", label: "بنفسجي غامق" },
+                       { color: "#EC4899", label: "وردي" },
+                       { color: "#06B6D4", label: "سماوي" },
+                       { color: "#F97316", label: "برتقالي" },
+                       { color: "#FFFFFF", label: "أبيض" },
+                     ].map((p) => (
+                       <button
+                         key={p.color}
+                         title={p.label}
+                         onClick={() => setSettings({...settings, bgColor: p.color})}
+                         className={cn(
+                           "w-full aspect-square rounded-xl border-2 transition-all hover:scale-110",
+                           (settings.bgColor ?? "#3B82F6") === p.color
+                             ? "border-white scale-110 shadow-lg"
+                             : "border-transparent"
+                         )}
+                         style={{ backgroundColor: p.color }}
+                       />
+                     ))}
+                   </div>
+                   <ColorPicker label="لون مخصص" value={settings.bgColor ?? "#3B82F6"} onChange={(v: string) => setSettings({...settings, bgColor: v})} />
+                 </>
+               )}
+               {(settings.bgColorMode ?? "fixed") === "random" && (
+                 <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl px-4 py-3">
+                   <span className="text-lg">🎲</span>
+                   <p className="text-xs text-foreground/70 leading-relaxed">
+                     سيطبق <span className="text-amber-400 font-black">لون مختلف</span> عشوائياً على خلفية الكلمة في كل فيديو — تنوع تلقائي بكل معالجة
+                   </p>
+                 </div>
+               )}
+               {(settings.bgColorMode ?? "fixed") === "none" && (
+                 <div className="flex items-start gap-3 bg-destructive/5 border border-destructive/20 rounded-2xl px-4 py-3">
+                   <span className="text-lg">⛔</span>
+                   <p className="text-xs text-foreground/70 leading-relaxed">
+                     لن تظهر <span className="text-destructive font-black">خلفية ملوّنة</span> خلف الكلمة النشطة — نص واضح بدون إبراز
+                   </p>
+                 </div>
+               )}
+             </div>
 
              {/* Shadow color section */}
              <div className="pt-3 border-t border-border/50 space-y-3">
@@ -550,6 +551,14 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                    <span className="text-lg">🎲</span>
                    <p className="text-xs text-foreground/70 leading-relaxed">
                      لون <span className="text-amber-400 font-black">ظل النص</span> سيتغير عشوائياً في كل فيديو لتنوع بصري تلقائي
+                   </p>
+                 </div>
+               )}
+               {(settings.shadowColorMode ?? "fixed") === "none" && (
+                 <div className="flex items-start gap-3 bg-destructive/5 border border-destructive/20 rounded-2xl px-4 py-3">
+                   <span className="text-lg">⛔</span>
+                   <p className="text-xs text-foreground/70 leading-relaxed">
+                     لن يُرسم <span className="text-destructive font-black">ظل</span> خلف النص — نص مباشر بدون تظليل
                    </p>
                  </div>
                )}

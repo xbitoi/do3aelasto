@@ -363,6 +363,7 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                ]} />
                <Select label="🎞 تأثير الانتقال بين الفيديوهات" value={settings.transitionEffect ?? "random"} onChange={(v: string) => setSettings({...settings, transitionEffect: v})} options={[
                  {label: "عشوائي 🎲", value: "random"},
+                 {label: "بدون انتقال ⛔", value: "none"},
                  {label: "تلاشي متقاطع", value: "crossfade"},
                  {label: "انزلاق لليسار", value: "slide_left"},
                  {label: "انزلاق لليمين", value: "slide_right"},
@@ -402,7 +403,7 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  </p>
 
                  {/* Mode toggle */}
-                 <div className="grid grid-cols-2 gap-2">
+                 <div className="grid grid-cols-3 gap-2">
                    <button
                      onClick={() => setSettings({...settings, bgColorMode: "fixed"})}
                      className={cn(
@@ -420,7 +421,16 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                          ? "border-amber-500/70 bg-amber-500/15 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                          : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
                      )}
-                   >🎲 عشوائي كل مرة</button>
+                   >🎲 عشوائي</button>
+                   <button
+                     onClick={() => setSettings({...settings, bgColorMode: "none"})}
+                     className={cn(
+                       "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                       (settings.bgColorMode ?? "fixed") === "none"
+                         ? "border-destructive/70 bg-destructive/15 text-destructive shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                     )}
+                   >⛔ توقف</button>
                  </div>
 
                  {(settings.bgColorMode ?? "fixed") === "fixed" && (
@@ -474,7 +484,7 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  <Layers className="w-3.5 h-3.5 text-info" />
                  لون ظل النص
                </p>
-               <div className="grid grid-cols-2 gap-2">
+               <div className="grid grid-cols-3 gap-2">
                  <button
                    onClick={() => setSettings({...settings, shadowColorMode: "fixed"})}
                    className={cn(
@@ -493,6 +503,15 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                        : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
                    )}
                  >🎲 عشوائي</button>
+                 <button
+                   onClick={() => setSettings({...settings, shadowColorMode: "none"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.shadowColorMode ?? "fixed") === "none"
+                       ? "border-destructive/70 bg-destructive/15 text-destructive shadow-[0_0_10px_rgba(239,68,68,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >⛔ توقف</button>
                </div>
                {(settings.shadowColorMode ?? "fixed") === "fixed" && (
                  <>
@@ -865,10 +884,24 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
   const fontFamily = FONT_FAMILY_MAP[settings.font] ?? "'Cairo', sans-serif";
 
   const shadowColor = settings.shadowColor ?? "#000000";
+  const shadowMode = settings.shadowColorMode ?? "fixed";
+  const bgMode = settings.bgColorMode ?? "fixed";
   const ps1 = Math.max(1, Math.round(9 * scale));
   const ps2 = Math.max(2, Math.round(18 * scale));
   const ps3 = Math.max(3, Math.round(36 * scale));
-  const previewTextShadow = `${ps1}px ${ps1}px ${ps1 * 3}px ${shadowColor}, ${ps2}px ${ps2}px ${ps2 * 3}px ${shadowColor}cc, ${ps3}px ${ps3}px ${ps3 * 3}px ${shadowColor}88`;
+  const previewTextShadow = shadowMode === "none"
+    ? "none"
+    : `${ps1}px ${ps1}px ${ps1 * 3}px ${shadowColor}, ${ps2}px ${ps2}px ${ps2 * 3}px ${shadowColor}cc, ${ps3}px ${ps3}px ${ps3 * 3}px ${shadowColor}88`;
+
+  const bgOpacityVal = (settings.bgOpacity ?? 40) / 100;
+  const wordBgColor = bgMode === "none"
+    ? "transparent"
+    : bgMode === "random"
+      ? `rgba(59,130,246,${bgOpacityVal})`
+      : `${settings.bgColor ?? "#3B82F6"}${Math.round((settings.bgOpacity ?? 40) * 2.55).toString(16).padStart(2, "0")}`;
+  const wordBoxShadow = bgMode === "none"
+    ? "none"
+    : `0 0 ${ps3 * 2}px ${settings.activeColor}99, 0 0 ${ps2 * 2}px ${settings.bgColor ?? "#3B82F6"}88`;
 
   return (
     <PremiumCard title="معاينة — ريلز فيسبوك (9:16)" icon={LayoutTemplate}>
@@ -918,13 +951,11 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
               <span
                 style={{
                   color: settings.activeColor,
-                  backgroundColor: (settings.bgColorMode ?? "fixed") === "random"
-                    ? `rgba(59,130,246,${(settings.bgOpacity ?? 40) / 100})`
-                    : `${settings.bgColor ?? "#3B82F6"}${Math.round((settings.bgOpacity ?? 40) * 2.55).toString(16).padStart(2, "0")}`,
-                  padding: "0 4px",
+                  backgroundColor: wordBgColor,
+                  padding: bgMode === "none" ? "0" : "0 4px",
                   borderRadius: "6px",
-                  boxShadow: `0 0 36px ${settings.activeColor}99, 0 0 18px ${settings.bgColor ?? "#3B82F6"}88`,
-                  borderBottom: `1px solid ${settings.activeColor}80`,
+                  boxShadow: wordBoxShadow,
+                  borderBottom: bgMode === "none" ? "none" : `1px solid ${settings.activeColor}80`,
                 }}
               >
                 إِنَّا

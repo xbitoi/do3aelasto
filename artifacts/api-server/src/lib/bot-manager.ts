@@ -3085,6 +3085,12 @@ async function concatVideosWithTransition(videoPaths: string[], outputPath: stri
     return;
   }
 
+  if (transitionEffect === "none") {
+    addLog(`🎞️ تأثير الانتقال: بدون انتقال (دمج مباشر)`, "info");
+    await concatVideosSimple(videoPaths, outputPath);
+    return;
+  }
+
   // Get durations for all segments (needed to calculate xfade offsets)
   const durations: number[] = [];
   for (const vp of videoPaths) {
@@ -3758,13 +3764,14 @@ def draw_word_at(draw, word, x, y, rgb, opacity, stroke_w):
     if opacity <= 0: return
     opacity = max(0, min(255, int(opacity)))
     r = get_display(arabic_reshaper.reshape(word))
-    sha1 = int(200 * opacity / 255)
-    sha2 = int(140 * opacity / 255)
-    sha3 = int(80 * opacity / 255)
     stroke_a = int(210 * opacity / 255)
-    draw.text((x+6, y+6), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha1))
-    draw.text((x+12, y+12), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha2))
-    draw.text((x+18, y+18), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha3))
+    if shadow_mode != 'none':
+        sha1 = int(200 * opacity / 255)
+        sha2 = int(140 * opacity / 255)
+        sha3 = int(80 * opacity / 255)
+        draw.text((x+6, y+6), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha1))
+        draw.text((x+12, y+12), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha2))
+        draw.text((x+18, y+18), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha3))
     if stroke_w > 0:
         for dx in range(-stroke_w, stroke_w+1):
             for dy in range(-stroke_w, stroke_w+1):
@@ -3955,7 +3962,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
                 rgb = word_colors[g_idx]
                 draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
             elif g_idx == active_idx:
-                if show_background:
+                if show_background and bg_mode != 'none':
                     hl_pad_x = max(8, int(font_size * 0.18))
                     hl_pad_y = max(4, int(font_size * 0.1))
                     hl_alpha = min(255, int(bg_opacity_pct * 255 / 100))

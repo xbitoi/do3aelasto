@@ -1007,22 +1007,26 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
           </span>
           <span className="font-bold">لون الظل:</span>
           <span className="flex items-center gap-1.5">
-            {(settings.shadowColorMode ?? "fixed") === "random"
-              ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
-              : <>
-                  <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.shadowColor ?? "#000000" }} />
-                  <span className="text-foreground/80 font-mono">{settings.shadowColor ?? "#000000"}</span>
-                </>
+            {(settings.shadowColorMode ?? "fixed") === "none"
+              ? <span className="text-destructive font-bold">توقف ⛔</span>
+              : (settings.shadowColorMode ?? "fixed") === "random"
+                ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
+                : <>
+                    <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.shadowColor ?? "#000000" }} />
+                    <span className="text-foreground/80 font-mono">{settings.shadowColor ?? "#000000"}</span>
+                  </>
             }
           </span>
           <span className="font-bold">لون الخلفية:</span>
           <span className="flex items-center gap-1.5">
-            {(settings.bgColorMode ?? "fixed") === "random"
-              ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
-              : <>
-                  <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.bgColor ?? "#3B82F6" }} />
-                  <span className="text-foreground/80 font-mono">{settings.bgColor ?? "#3B82F6"}</span>
-                </>
+            {(settings.bgColorMode ?? "fixed") === "none"
+              ? <span className="text-destructive font-bold">توقف ⛔</span>
+              : (settings.bgColorMode ?? "fixed") === "random"
+                ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
+                : <>
+                    <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.bgColor ?? "#3B82F6" }} />
+                    <span className="text-foreground/80 font-mono">{settings.bgColor ?? "#3B82F6"}</span>
+                  </>
             }
           </span>
         </div>

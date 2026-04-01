@@ -362,12 +362,15 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
         
         {tab === 'audio' && (
            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-             <Select label="أسلوب الدعاء" value={settings.duaaStyle} onChange={(v: string) => setSettings({...settings, duaaStyle: v})} options={[
+             <Select label="أسلوب الدعاء" value={settings.duaaStyle || "عشوائي"} onChange={(v: string) => setSettings({...settings, duaaStyle: v})} options={[
+               {label: "عشوائي 🎲 — يتغير في كل دعاء", value: "عشوائي"},
                {label: "تضرع وخشوع", value: "تضرع وخشوع"},
                {label: "شكر وحمد", value: "شكر وحمد"},
                {label: "استغفار", value: "استغفار"},
                {label: "رجاء وأمل", value: "رجاء وأمل"},
-               {label: "توكل وثقة", value: "توكل وثقة"}
+               {label: "توكل وثقة", value: "توكل وثقة"},
+               {label: "دعاء الصباح", value: "دعاء الصباح"},
+               {label: "دعاء المساء", value: "دعاء المساء"},
              ]} />
 
              <div className="space-y-2">

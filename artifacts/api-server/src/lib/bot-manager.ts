@@ -404,18 +404,25 @@ async function fetchTelegramChannelInfo(channelId: string, botToken: string): Pr
 }
 
 // ── Smart bot: generate daily Duaa content ───────────────────────────────
-async function generateDailyDuaaContent(geminiKey: string): Promise<{ duaa: string; title: string; caption: string }> {
-  const prompts = [
-    "دعاء الصباح",
-    "دعاء المساء",
-    "دعاء الشكر",
-    "دعاء الاستغفار",
-    "دعاء طلب الرزق",
-    "دعاء الهداية",
-    "دعاء الصبر",
-    "دعاء حفظ الأهل",
-  ];
-  const topic = prompts[new Date().getDay() % prompts.length];
+const DUAA_STYLES_ALL = [
+  "تضرع وخشوع",
+  "شكر وحمد",
+  "استغفار",
+  "رجاء وأمل",
+  "توكل وثقة",
+  "دعاء الصباح",
+  "دعاء المساء",
+];
+
+function resolveDuaaStyle(style?: string): string {
+  if (!style || style === "عشوائي") {
+    return DUAA_STYLES_ALL[Math.floor(Math.random() * DUAA_STYLES_ALL.length)];
+  }
+  return style;
+}
+
+async function generateDailyDuaaContent(geminiKey: string, duaaStyle?: string): Promise<{ duaa: string; title: string; caption: string }> {
+  const topic = resolveDuaaStyle(duaaStyle);
 
   try {
     const genAI = new GoogleGenerativeAI(geminiKey);
@@ -519,42 +526,46 @@ async function schedulerTick() {
   const botToken = loadCredentials()?.botToken;
   if (!botToken || !botInstance) return;
 
-  // Scheduled Facebook post
+  // Scheduled Facebook post — always text-only (no video upload)
   if (shouldRunScheduledPost(settings)) {
     const dateKey = new Date().toDateString();
     lastScheduledPostDate = dateKey;
-    addLog("⏰ نشر مجدوَل — فيسبوك", "info");
+    addLog("⏰ نشر مجدوَل — فيسبوك (نص دعاء)", "info");
     try {
       const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
-      const last = loadLastVideo();
-      if (last && settings.facebookToken) {
-        const fbRes = await publishToFacebook(last.videoPath, title, caption, settings.facebookToken);
-        if (fbRes.success) {
-          addLog(`✅ نشر مجدوَل فيسبوك: ${fbRes.url}`, "success");
-          recordPublish({
-            title,
-            duaaText: duaa,
-            platforms: [{ platform: "فيسبوك", success: true, url: fbRes.url, channelName: fbRes.pageName }],
-            scheduled: true,
-          });
-          if (settings.smartBotAdminChatId) {
-            await botInstance.sendMessage(
-              parseInt(settings.smartBotAdminChatId),
-              `✅ *نشر مجدوَل تلقائي*\n\n📘 فيسبوك: ${fbRes.url}\n🤲 _${duaa.slice(0, 80)}..._`,
-              { parse_mode: "Markdown" }
-            ).catch(() => {});
-          }
-        } else {
-          addLog(`❌ فشل النشر المجدوَل: ${fbRes.error}`, "error");
-        }
-      } else if (!last && settings.facebookToken) {
-        const textOnlyCaption = `🤲 *${title}*\n\n${caption}`;
-        await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
+      if (settings.facebookToken) {
+        const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
+        const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
         });
-        addLog("📝 نشر نصي مجدوَل (بدون فيديو) على فيسبوك", "success");
+        const fbData = await fbRes.json() as any;
+        if (fbRes.ok && fbData.id) {
+          const postUrl = `https://facebook.com/${fbData.id}`;
+          addLog(`✅ نشر مجدوَل نصي فيسبوك`, "success");
+          recordPublish({
+            title,
+            duaaText: duaa,
+            platforms: [{ platform: "فيسبوك", success: true, url: postUrl }],
+            scheduled: true,
+          });
+          // Send duaa copy to all known Telegram chats
+          const duaaMsg = [
+            `🤲 *${title}*`,
+            ``,
+            duaa.slice(0, 500),
+            ``,
+            `━━━━━━━━━━━━━━━`,
+            `📘 *تم النشر على فيسبوك*`,
+            `_سبحان الله وبحمده سبحان الله العظيم_`,
+          ].join("\n");
+          for (const chatId of knownChatIds) {
+            await botInstance.sendMessage(chatId, duaaMsg, { parse_mode: "Markdown", disable_web_page_preview: true }).catch(() => {});
+          }
+        } else {
+          addLog(`❌ فشل النشر المجدوَل: ${fbData?.error?.message || "خطأ غير محدد"}`, "error");
+        }
       }
     } catch (err) {
       addLog(`❌ خطأ في النشر المجدوَل: ${err instanceof Error ? err.message.slice(0, 60) : "خطأ"}`, "error");
@@ -664,45 +675,40 @@ export async function forceTriggerScheduledPost(): Promise<{ success: boolean; m
     return { success: false, message: "البوت غير مُشغَّل — شغّل البوت أولاً" };
   }
   try {
-    addLog("🔘 تشغيل يدوي للنشر المجدوَل...", "info");
+    addLog("🔘 تشغيل يدوي للنشر المجدوَل (نص دعاء)...", "info");
     const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
-    const last = loadLastVideo();
 
-    let fbUrl: string | undefined;
+    // Always post text-only — no video upload
+    const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
+    const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
+    });
+    const fbData = await fbRes.json() as any;
 
-    if (last && settings.facebookToken) {
-      const fbRes = await publishToFacebook(last.videoPath, title, caption, settings.facebookToken);
-      if (fbRes.success) {
-        fbUrl = fbRes.url;
-        addLog(`✅ نشر يدوي فيسبوك: ${fbRes.url}`, "success");
-        recordPublish({
-          title,
-          duaaText: duaa,
-          platforms: [{ platform: "فيسبوك", success: true, url: fbRes.url, channelName: fbRes.pageName }],
-          scheduled: false,
-        });
-      } else {
-        addLog(`❌ فشل النشر اليدوي: ${fbRes.error}`, "error");
-        return { success: false, message: fbRes.error || "فشل النشر على فيسبوك" };
-      }
-    } else if (settings.facebookToken) {
-      const textOnlyCaption = `🤲 *${title}*\n\n${caption}`;
-      await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
-      });
-      addLog("📝 نشر نصي يدوي على فيسبوك (بدون فيديو)", "success");
+    if (!fbRes.ok || !fbData.id) {
+      const errMsg = fbData?.error?.message || "فشل النشر على فيسبوك";
+      addLog(`❌ فشل النشر اليدوي: ${errMsg}`, "error");
+      return { success: false, message: errMsg };
     }
+
+    addLog(`✅ نشر يدوي نصي فيسبوك`, "success");
+    recordPublish({
+      title,
+      duaaText: duaa,
+      platforms: [{ platform: "فيسبوك", success: true, url: `https://facebook.com/${fbData.id}` }],
+      scheduled: false,
+    });
 
     if (botInstance && knownChatIds.size > 0) {
       const duaaMsg = [
-        `🤲 *نشر مجدوَل — ${title}*`,
+        `🤲 *${title}*`,
         ``,
         duaa.slice(0, 500),
         ``,
         `━━━━━━━━━━━━━━━`,
-        fbUrl ? `📘 *الرابط:* ${fbUrl}` : `📘 *تم النشر على فيسبوك*`,
+        `📘 *تم النشر على فيسبوك*`,
         `_سبحان الله وبحمده سبحان الله العظيم_`,
       ].join("\n");
       for (const chatId of knownChatIds) {
@@ -710,7 +716,7 @@ export async function forceTriggerScheduledPost(): Promise<{ success: boolean; m
       }
     }
 
-    return { success: true, message: fbUrl ? `✅ تم النشر: ${fbUrl}` : "✅ تم النشر النصي على فيسبوك" };
+    return { success: true, message: "✅ تم النشر النصي على فيسبوك" };
   } catch (err) {
     const msg = err instanceof Error ? err.message.slice(0, 100) : "خطأ غير متوقع";
     addLog(`❌ خطأ في النشر اليدوي: ${msg}`, "error");

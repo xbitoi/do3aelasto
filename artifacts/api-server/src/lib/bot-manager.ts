@@ -2349,7 +2349,21 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
     const fileId = msg.video?.file_id || msg.document?.file_id;
     if (!fileId) throw new Error("لم يتم العثور على الفيديو");
 
-    const fileInfo = await botInstance!.getFile(fileId);
+    let fileInfo: any;
+    try {
+      fileInfo = await botInstance!.getFile(fileId);
+    } catch (dlErr: any) {
+      const isTooBig = String(dlErr?.message || dlErr).toLowerCase().includes("file is too big")
+        || String(dlErr?.message || dlErr).includes("413");
+      if (isTooBig) {
+        throw new Error(
+          `⚠️ حجم الفيديو أكبر من 20MB\n\n` +
+          `تيليغرام يمنع البوتات من تنزيل ملفات تتجاوز 20MB.\n\n` +
+          `*الحل:* اضغط الفيديو قبل إرساله حتى يصبح حجمه أقل من 20MB، ثم أعد الإرسال.`
+        );
+      }
+      throw dlErr;
+    }
     const fileUrl = `https://api.telegram.org/file/bot${(botInstance as any).token}/${fileInfo.file_path}`;
     const videoPath = path.join(tmpDir, "input.mp4");
 
@@ -2538,13 +2552,26 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
     for (let i = 0; i < sorted.length; i++) {
       checkCancelled(chatId);
       const v = sorted[i];
-      const fileInfo = await botInstance!.getFile(v.fileId);
-      const fileUrl = `https://api.telegram.org/file/bot${(botInstance as any).token}/${fileInfo.file_path}`;
-      const vidPath = path.join(tmpDir, `raw_${v.num}.mp4`);
-      await downloadFile(fileUrl, vidPath);
-      rawPaths.push(vidPath);
-      addLog(`✅ تم تحميل الفيديو ${i + 1}/${sorted.length}`, "info");
-      setOpStage(chatId, `تحميل ${i + 1}/${sorted.length}...`);
+      try {
+        const fileInfo = await botInstance!.getFile(v.fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${(botInstance as any).token}/${fileInfo.file_path}`;
+        const vidPath = path.join(tmpDir, `raw_${v.num}.mp4`);
+        await downloadFile(fileUrl, vidPath);
+        rawPaths.push(vidPath);
+        addLog(`✅ تم تحميل الفيديو ${i + 1}/${sorted.length}`, "info");
+        setOpStage(chatId, `تحميل ${i + 1}/${sorted.length}...`);
+      } catch (dlErr: any) {
+        const isTooBig = String(dlErr?.message || dlErr).toLowerCase().includes("file is too big")
+          || String(dlErr?.message || dlErr).includes("413");
+        if (isTooBig) {
+          throw new Error(
+            `⚠️ الفيديو رقم *${v.num}* حجمه أكبر من 20MB\n\n` +
+            `تيليغرام يمنع البوتات من تنزيل ملفات تتجاوز 20MB.\n\n` +
+            `*الحل:* اضغط الفيديو قبل إرساله (مثلاً باستخدام HandBrake أو أي تطبيق ضغط فيديو) حتى يصبح حجمه أقل من 20MB، ثم أعد الإرسال.`
+          );
+        }
+        throw dlErr;
+      }
     }
     checkCancelled(chatId);
 
@@ -2668,11 +2695,20 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       }
     } else {
       addLog(`❌ خطأ في دمج الفيديوهات: ${errorMsg}`, "error");
+      // User-friendly errors start with ⚠️ and contain Markdown formatting
+      const isUserFriendly = errorMsg.startsWith("⚠️");
+      const displayMsg = isUserFriendly
+        ? `❌ *تعذّر المعالجة*\n\n${errorMsg}\n\n_أرسل *ابدا* للمحاولة مجدداً._`
+        : `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`;
       if (statusMsg) {
         await botInstance!.editMessageText(
-          `❌ *حدث خطأ أثناء المعالجة*\n\n\`${errorMsg.slice(0, 200)}\`\n\nالرجاء المحاولة مرة أخرى.`,
+          displayMsg,
           { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
-        ).catch(() => {});
+        ).catch(async () => {
+          await botInstance!.sendMessage(chatId, displayMsg, { parse_mode: "Markdown" }).catch(() => {});
+        });
+      } else {
+        await botInstance!.sendMessage(chatId, displayMsg, { parse_mode: "Markdown" }).catch(() => {});
       }
     }
   } finally {

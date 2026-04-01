@@ -3,7 +3,7 @@
   "fontSize": 111,
   "yPosition": 22,
   "lineHeight": 1.5,
-  "strokeThickness": 0,
+  "strokeThickness": 2,
   "textColor": "#0000ff",
   "activeColor": "#ff0000",
   "ttsSpeed": true,

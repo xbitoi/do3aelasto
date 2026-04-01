@@ -5,7 +5,7 @@ import { PremiumCard, PremiumButton, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
 import {
   Brain, Radio, Calendar, Clock, Send, Play, RefreshCw, Loader2,
-  CheckCircle2, Bell, Zap, Globe
+  CheckCircle2, Bell, Zap, Globe, Download, Youtube, Facebook, Music2, SendHorizonal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +39,12 @@ function SettingRow({ label, hint, children }: { label: string; hint?: string; c
   );
 }
 
+interface ConnectedChannels {
+  youtube?: { channelId: string; channelName: string };
+  facebook?: { pageId: string; pageName: string };
+  tiktok?: { username: string };
+}
+
 export function SmartBot() {
   const { data: serverSettings } = useGetSettings();
   const { mutate: updateSettings, isPending } = useUpdateSettings();
@@ -47,6 +53,9 @@ export function SmartBot() {
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
   const [smartBotStatus, setSmartBotStatus] = useState<SmartBotStatus | null>(null);
   const [triggering, setTriggering] = useState(false);
+  const [connectedChannels, setConnectedChannels] = useState<ConnectedChannels | null>(null);
+  const [fetchingChannels, setFetchingChannels] = useState(false);
+  const [sendingReport, setSendingReport] = useState(false);
   const saveTimer = { current: null as ReturnType<typeof setTimeout> | null };
 
   useEffect(() => {
@@ -93,6 +102,58 @@ export function SmartBot() {
       toast({ title: "خطأ", description: "تعذّر الاتصال", variant: "destructive" });
     } finally {
       setTriggering(false);
+    }
+  };
+
+  const fetchConnectedChannels = async () => {
+    setFetchingChannels(true);
+    try {
+      const res = await fetch("/api/settings/connected-channels");
+      const data = await res.json() as ConnectedChannels;
+      setConnectedChannels(data);
+      const parts: string[] = [];
+      if (data.youtube?.channelId) parts.push(data.youtube.channelId);
+      if (data.facebook?.pageId) parts.push(data.facebook.pageId);
+      if (data.tiktok?.username) parts.push(`@${data.tiktok.username}`);
+      if (parts.length > 0 && settings) {
+        const current = settings.managedChannelIds?.trim();
+        const merged = current
+          ? [...new Set([...current.split(",").map(s => s.trim()), ...parts])].join(", ")
+          : parts.join(", ");
+        handleChange({ ...settings, managedChannelIds: merged });
+        toast({ title: "✅ تم الجلب", description: `تمت إضافة ${parts.length} قناة/صفحة` });
+      } else {
+        toast({ title: "تنبيه", description: "لا توجد قنوات متصلة بمفاتيح API", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر الاتصال بالسيرفر", variant: "destructive" });
+    } finally {
+      setFetchingChannels(false);
+    }
+  };
+
+  const sendReportNow = async () => {
+    if (!settings?.autoReportChatId) {
+      toast({ title: "تنبيه", description: "أدخل Chat ID لاستقبال التقرير أولاً", variant: "destructive" });
+      return;
+    }
+    setSendingReport(true);
+    try {
+      const res = await fetch("/api/analytics/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: settings.autoReportChatId }),
+      });
+      const data = await res.json() as { success: boolean; error?: string };
+      if (data.success) {
+        toast({ title: "✅ أُرسل التقرير", description: "وصل التقرير لتيليغرام الآن" });
+      } else {
+        toast({ title: "خطأ", description: data.error || "فشل إرسال التقرير", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر الاتصال بالسيرفر", variant: "destructive" });
+    } finally {
+      setSendingReport(false);
     }
   };
 
@@ -289,40 +350,54 @@ export function SmartBot() {
             />
           </SettingRow>
 
+          <SettingRow label="معرّف المحادثة (Chat ID)" hint="يُرسل إليه التقرير الأسبوعي ويمكن الإرسال الآن">
+            <input
+              type="text"
+              placeholder="-1001234567890"
+              value={settings.autoReportChatId || ""}
+              onChange={(e) => handleChange({ ...settings, autoReportChatId: e.target.value })}
+              dir="ltr"
+              className="w-48 bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-xs font-mono shadow-inner placeholder:text-muted-foreground/40"
+            />
+          </SettingRow>
+
           {settings.autoReportEnabled && (
-            <>
-              <SettingRow label="معرّف المحادثة (Chat ID)" hint="يُرسل إليه التقرير الأسبوعي تلقائياً">
-                <input
-                  type="text"
-                  placeholder="-1001234567890"
-                  value={settings.autoReportChatId || ""}
-                  onChange={(e) => handleChange({ ...settings, autoReportChatId: e.target.value })}
-                  dir="ltr"
-                  className="w-48 bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-xs font-mono shadow-inner placeholder:text-muted-foreground/40"
-                />
-              </SettingRow>
-              <SettingRow label="يوم التقرير الأسبوعي" hint="اليوم الذي يُرسل فيه التقرير التلقائي">
-                <select
-                  value={settings.weeklyReportDay ?? 5}
-                  onChange={(e) => handleChange({ ...settings, weeklyReportDay: parseInt(e.target.value) })}
-                  className="w-40 appearance-none bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-sm font-bold shadow-inner cursor-pointer"
-                >
-                  <option value={0} className="bg-card">الأحد</option>
-                  <option value={1} className="bg-card">الاثنين</option>
-                  <option value={2} className="bg-card">الثلاثاء</option>
-                  <option value={3} className="bg-card">الأربعاء</option>
-                  <option value={4} className="bg-card">الخميس</option>
-                  <option value={5} className="bg-card">الجمعة</option>
-                  <option value={6} className="bg-card">السبت</option>
-                </select>
-              </SettingRow>
-            </>
+            <SettingRow label="يوم التقرير الأسبوعي" hint="اليوم الذي يُرسل فيه التقرير التلقائي">
+              <select
+                value={settings.weeklyReportDay ?? 5}
+                onChange={(e) => handleChange({ ...settings, weeklyReportDay: parseInt(e.target.value) })}
+                className="w-40 appearance-none bg-black/40 border border-border rounded-xl px-3 py-2 focus:outline-none focus:border-primary transition-all text-foreground text-sm font-bold shadow-inner cursor-pointer"
+              >
+                <option value={0} className="bg-card">الأحد</option>
+                <option value={1} className="bg-card">الاثنين</option>
+                <option value={2} className="bg-card">الثلاثاء</option>
+                <option value={3} className="bg-card">الأربعاء</option>
+                <option value={4} className="bg-card">الخميس</option>
+                <option value={5} className="bg-card">الجمعة</option>
+                <option value={6} className="bg-card">السبت</option>
+              </select>
+            </SettingRow>
           )}
         </div>
-        <div className="mt-4 p-3 bg-primary/5 border border-primary/15 rounded-2xl flex items-start gap-2">
-          <Send className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-          <p className="text-xs text-foreground/70 leading-relaxed">
-            أرسل <span className="font-black text-primary">تقرير</span> في محادثة البوت للحصول على التقرير فوراً، أو اذهب إلى <span className="font-black text-primary">صفحة التحليل</span> لإرساله يدوياً.
+
+        {/* Send Now button */}
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={sendReportNow}
+            disabled={sendingReport || !settings.autoReportChatId}
+            className={cn(
+              "flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-black transition-all",
+              "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 shadow-lg shadow-primary/20",
+              "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            )}
+          >
+            {sendingReport
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> جارٍ الإرسال...</>
+              : <><SendHorizonal className="w-4 h-4" /> إرسال التقرير الآن</>
+            }
+          </button>
+          <p className="text-xs text-muted-foreground/60 leading-tight">
+            يُرسل ملخص التحليلات فوراً إلى Chat ID المدخل
           </p>
         </div>
       </PremiumCard>
@@ -344,10 +419,53 @@ export function SmartBot() {
             />
           </div>
         </div>
-        <div className={cn("overflow-hidden transition-all duration-300", settings.smartBotEnabled ? "max-h-[600px]" : "max-h-0")}>
+        <div className={cn("overflow-hidden transition-all duration-300", settings.smartBotEnabled ? "max-h-[900px]" : "max-h-0")}>
           <div className="p-6 sm:p-8 space-y-5">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-foreground/70">معرّفات القنوات المُدارة</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-bold text-foreground/70">معرّفات القنوات المُدارة</label>
+                <button
+                  onClick={fetchConnectedChannels}
+                  disabled={fetchingChannels}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 active:scale-95",
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  )}
+                >
+                  {fetchingChannels
+                    ? <><Loader2 className="w-3 h-3 animate-spin" /> جارٍ الجلب...</>
+                    : <><Download className="w-3 h-3" /> جلب من المفاتيح</>
+                  }
+                </button>
+              </div>
+
+              {/* Connected channels chips (shown after fetch) */}
+              {connectedChannels && (Object.keys(connectedChannels).length > 0) && (
+                <div className="flex flex-wrap gap-2 py-1">
+                  {connectedChannels.youtube && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] font-bold text-red-400">
+                      <Youtube className="w-3 h-3 shrink-0" />
+                      <span className="font-mono">{connectedChannels.youtube.channelId}</span>
+                      <span className="text-red-400/60 font-normal">({connectedChannels.youtube.channelName})</span>
+                    </div>
+                  )}
+                  {connectedChannels.facebook && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/20 text-[11px] font-bold text-blue-400">
+                      <Facebook className="w-3 h-3 shrink-0" />
+                      <span className="font-mono">{connectedChannels.facebook.pageId}</span>
+                      <span className="text-blue-400/60 font-normal">({connectedChannels.facebook.pageName})</span>
+                    </div>
+                  )}
+                  {connectedChannels.tiktok && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-pink-500/10 border border-pink-500/20 text-[11px] font-bold text-pink-400">
+                      <Music2 className="w-3 h-3 shrink-0" />
+                      <span className="font-mono">@{connectedChannels.tiktok.username}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <textarea
                 value={settings.managedChannelIds || ""}
                 onChange={(e) => handleChange({ ...settings, managedChannelIds: e.target.value })}
@@ -356,7 +474,7 @@ export function SmartBot() {
                 className="w-full bg-black/40 border border-border rounded-2xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none leading-relaxed font-mono"
                 dir="ltr"
               />
-              <p className="text-[10px] text-muted-foreground/40">افصل بين المعرّفات بفاصلة — يقبل @username أو Chat ID رقمي</p>
+              <p className="text-[10px] text-muted-foreground/40">افصل بين المعرّفات بفاصلة — يقبل @username أو Chat ID رقمي — اضغط "جلب من المفاتيح" لملء تلقائي من يوتيوب/فيسبوك/تيك توك</p>
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold text-foreground/70">معرّف المحادثة الإدارية (Chat ID)</label>

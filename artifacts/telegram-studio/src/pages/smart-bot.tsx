@@ -5,7 +5,8 @@ import { PremiumCard, PremiumButton, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
 import {
   Brain, Radio, Calendar, Clock, Send, Play, RefreshCw, Loader2,
-  CheckCircle2, Bell, Zap, Globe, Download, Youtube, Facebook, Music2, SendHorizonal
+  CheckCircle2, Bell, Zap, Globe, Download, Youtube, Facebook, Music2, SendHorizonal,
+  Trash2, Eye, AlertTriangle, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +57,11 @@ export function SmartBot() {
   const [connectedChannels, setConnectedChannels] = useState<ConnectedChannels | null>(null);
   const [fetchingChannels, setFetchingChannels] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
+  const [ytVideos, setYtVideos] = useState<Array<{ id: string; title: string; publishedAt: string; thumbnail: string; duration: string; views: number }> | null>(null);
+  const [ytVideosLoading, setYtVideosLoading] = useState(false);
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
+  const [deletingVideos, setDeletingVideos] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const saveTimer = { current: null as ReturnType<typeof setTimeout> | null };
 
   useEffect(() => {
@@ -87,10 +93,63 @@ export function SmartBot() {
     }, 1000);
   };
 
+  const loadYtVideos = async () => {
+    setYtVideosLoading(true);
+    setSelectedVideoIds(new Set());
+    try {
+      const res = await fetch("/api/youtube/videos");
+      const data = await res.json() as { videos?: typeof ytVideos; error?: string };
+      if (data.error) {
+        toast({ title: "خطأ", description: data.error, variant: "destructive" });
+      } else {
+        setYtVideos(data.videos ?? []);
+      }
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر جلب الفيديوهات", variant: "destructive" });
+    } finally {
+      setYtVideosLoading(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedVideoIds.size === 0) return;
+    setDeletingVideos(true);
+    setConfirmDelete(false);
+    try {
+      const res = await fetch("/api/youtube/delete-videos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoIds: Array.from(selectedVideoIds) }),
+      });
+      const data = await res.json() as { deleted: string[]; failed: Array<{ id: string; error: string }> };
+      if (data.deleted?.length > 0) {
+        toast({ title: "✅ تم الحذف", description: `تم حذف ${data.deleted.length} فيديو بنجاح` });
+        setYtVideos(prev => prev?.filter(v => !data.deleted.includes(v.id)) ?? null);
+        setSelectedVideoIds(new Set());
+      }
+      if (data.failed?.length > 0) {
+        toast({ title: "⚠️ بعض الحذف فشل", description: `فشل حذف ${data.failed.length} فيديو`, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر الحذف", variant: "destructive" });
+    } finally {
+      setDeletingVideos(false);
+    }
+  };
+
+  const toggleVideoSelect = (id: string) => {
+    setSelectedVideoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const triggerPost = async () => {
     setTriggering(true);
     try {
-      const res = await fetch("/api/scheduler/trigger", { method: "POST" });
+      const res = await fetch("/api/scheduler/force-trigger", { method: "POST" });
       const data = await res.json() as { success: boolean; message?: string; error?: string };
       if (data.success) {
         toast({ title: "✅ تم", description: data.message || "تم تشغيل المهمة" });
@@ -536,6 +595,125 @@ export function SmartBot() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── YouTube Video Management ── */}
+      <div className="relative rounded-[2rem] bg-card border border-red-500/20 shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-4 p-6 sm:p-8 border-b border-border/50">
+          <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20 shadow-inner">
+            <Youtube className="w-5 h-5 text-red-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-black text-foreground">إدارة فيديوهات يوتيوب</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">عرض وحذف فيديوهات قناتك مباشرة من هنا</p>
+          </div>
+          <PremiumButton variant="secondary" onClick={loadYtVideos} isLoading={ytVideosLoading}>
+            <Eye className="w-4 h-4" />
+            تحميل الفيديوهات
+          </PremiumButton>
+        </div>
+
+        {ytVideos !== null && (
+          <div className="p-6 sm:p-8 space-y-4">
+            {/* Bulk Delete Toolbar */}
+            {ytVideos.length > 0 && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={() => {
+                    if (selectedVideoIds.size === ytVideos.length) {
+                      setSelectedVideoIds(new Set());
+                    } else {
+                      setSelectedVideoIds(new Set(ytVideos.map(v => v.id)));
+                    }
+                  }}
+                  className="text-xs font-bold text-muted-foreground hover:text-foreground px-3 py-1.5 border border-border/50 rounded-xl hover:border-border transition-all"
+                >
+                  {selectedVideoIds.size === ytVideos.length ? "إلغاء التحديد" : "تحديد الكل"}
+                </button>
+
+                {selectedVideoIds.size > 0 && !confirmDelete && (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="flex items-center gap-2 text-xs font-black text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1.5 rounded-xl hover:bg-red-500/20 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    حذف المحدد ({selectedVideoIds.size})
+                  </button>
+                )}
+
+                {confirmDelete && (
+                  <div className="flex items-center gap-2 p-3 bg-red-950/50 border border-red-500/30 rounded-xl">
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span className="text-xs font-bold text-red-400">تأكيد حذف {selectedVideoIds.size} فيديو؟ لا يمكن التراجع!</span>
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={deletingVideos}
+                      className="flex items-center gap-1.5 text-xs font-black bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-all disabled:opacity-50"
+                    >
+                      {deletingVideos ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      نعم، احذف
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                <span className="text-xs text-muted-foreground/50 mr-auto">{ytVideos.length} فيديو في آخر 25</span>
+              </div>
+            )}
+
+            {/* Video List */}
+            {ytVideos.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground/40 text-sm">لا توجد فيديوهات في القناة</div>
+            ) : (
+              <div className="divide-y divide-border/30 rounded-2xl border border-border/30 overflow-hidden">
+                {ytVideos.map((v) => {
+                  const isSelected = selectedVideoIds.has(v.id);
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => toggleVideoSelect(v.id)}
+                      className={cn(
+                        "flex items-center gap-3 w-full text-right p-3 hover:bg-white/[0.03] transition-all",
+                        isSelected && "bg-red-500/10 border-l-2 border-l-red-500"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-all",
+                        isSelected ? "bg-red-500 border-red-500" : "border-border/50"
+                      )}>
+                        {isSelected && <span className="text-white text-xs font-black">✓</span>}
+                      </div>
+                      {v.thumbnail && (
+                        <img src={v.thumbnail} alt={v.title} className="w-20 h-12 rounded-lg object-cover border border-border/30 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0 text-right">
+                        <p className="text-sm font-bold text-foreground line-clamp-1">{v.title}</p>
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{v.views.toLocaleString("en-US")}</span>
+                          <span>{v.publishedAt ? new Date(v.publishedAt).toLocaleDateString("ar-EG") : "—"}</span>
+                        </div>
+                      </div>
+                      <a
+                        href={`https://youtu.be/${v.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="text-[11px] text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded-lg shrink-0"
+                      >
+                        ↗ عرض
+                      </a>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { useGetSettings, useUpdateSettings, useGetBotStatus } from "@workspace/a
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, VolumeX, Loader2, Share2, FileText, Send, MessageCircle, Wifi } from "lucide-react";
+import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, VolumeX, Loader2, Share2, FileText, Send, MessageCircle, Wifi, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function BotStatusMiniCard({ status, onSendWelcome, isSendingWelcome }: { status?: BotStatus; onSendWelcome: () => void; isSendingWelcome: boolean }) {
@@ -256,6 +256,27 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              <Slider label="سُمك الحدود" min={0} max={10} step={1} value={settings.strokeThickness} onChange={(v: number) => setSettings({...settings, strokeThickness: v})} unit="px" />
 
              <div className="pt-3 border-t border-border/50 space-y-3">
+               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                 <Layers className="w-3.5 h-3.5 text-primary" />
+                 خلفية النص
+               </p>
+               <Switch
+                 label="تفعيل خلفية النص"
+                 checked={settings.showBackground ?? true}
+                 onChange={(v: boolean) => setSettings({...settings, showBackground: v})}
+               />
+               {(settings.showBackground ?? true) && (
+                 <Slider
+                   label="شفافية الخلفية"
+                   min={0} max={100} step={5}
+                   value={settings.bgOpacity ?? 40}
+                   onChange={(v: number) => setSettings({...settings, bgOpacity: v})}
+                   unit="%"
+                 />
+               )}
+             </div>
+
+             <div className="pt-3 border-t border-border/50 space-y-3">
                <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">📐 نسبة العرض للارتفاع</p>
                <div className="grid grid-cols-2 gap-2">
                  {[
@@ -355,7 +376,27 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  الصوت المُستخدم
                </label>
                <div className="space-y-1.5">
-                 <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest">أصوات ذكور — عميقة للخشوع</p>
+                 {/* Random voice option */}
+                 <button
+                   onClick={() => setSettings({...settings, ttsVoice: "random"})}
+                   className={cn(
+                     "flex items-center gap-3 w-full text-right px-3 py-2.5 rounded-xl border transition-all text-sm",
+                     (settings.ttsVoice === "random" || !settings.ttsVoice)
+                       ? "border-primary bg-primary/15 text-foreground shadow-[0_0_12px_rgba(99,102,241,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >
+                   <span className="text-lg">🎲</span>
+                   <span className="flex flex-col items-start">
+                     <span className="font-black text-sm">عشوائي</span>
+                     <span className="text-[11px] opacity-70">يختار صوتاً مختلفاً في كل دعاء</span>
+                   </span>
+                   {(settings.ttsVoice === "random" || !settings.ttsVoice) && (
+                     <span className="mr-auto text-primary text-xs font-black">✓</span>
+                   )}
+                 </button>
+
+                 <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest pt-1">أصوات ذكور — عميقة للخشوع</p>
                  <div className="grid grid-cols-1 gap-1.5">
                    {[
                      { value: "ar-SA-HamedNeural",  label: "حامد", desc: "سعودي — غليظ خاشع (الافتراضي)" },
@@ -721,43 +762,72 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
   );
 }
 
+const LOG_LEVEL_COLORS: Record<string, string> = {
+  success:    "text-green-400 font-bold",
+  error:      "text-red-400 font-bold",
+  warning:    "text-yellow-400 font-semibold",
+  info:       "text-blue-300 font-semibold",
+  processing: "text-violet-400 font-bold animate-pulse",
+};
+
+const LOG_LEVEL_PREFIX: Record<string, string> = {
+  success:    "✅",
+  error:      "❌",
+  warning:    "⚠️",
+  info:       "ℹ️",
+  processing: "⏳",
+};
+
+const MAX_DISPLAYED_LOGS = 80;
+
 function LogsCard({ logs }: { logs: LogEntry[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [logs]);
 
+  const displayedLogs = logs.slice(-MAX_DISPLAYED_LOGS);
+
   return (
-    <PremiumCard title="سجل العمليات المباشر" icon={Activity} className="flex flex-col flex-1 h-full min-h-[400px]">
-      <div 
+    <PremiumCard title="سجل العمليات المباشر" icon={Activity}>
+      <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto bg-[#02040A] border border-border/80 rounded-2xl p-6 font-mono text-sm space-y-3 shadow-[inset_0_4px_20px_rgba(0,0,0,0.5)]"
+        className="overflow-y-auto bg-[#030712] border border-border/60 rounded-2xl font-mono text-xs shadow-[inset_0_4px_20px_rgba(0,0,0,0.7)]"
+        style={{ height: "420px", maxHeight: "420px" }}
       >
-        {logs.length === 0 && (
-          <div className="text-muted-foreground/40 text-center h-full flex flex-col items-center justify-center gap-4">
-             <Activity className="w-10 h-10 opacity-20" />
-             <span className="font-bold tracking-wide">في انتظار بدء البوت واستقبال المقاطع...</span>
+        {displayedLogs.length === 0 ? (
+          <div className="text-muted-foreground/30 text-center h-full flex flex-col items-center justify-center gap-3 p-6">
+            <Activity className="w-8 h-8 opacity-20" />
+            <span className="font-bold tracking-wide text-sm">في انتظار بدء البوت واستقبال المقاطع...</span>
+          </div>
+        ) : (
+          <div className="p-3 space-y-0.5">
+            {displayedLogs.map((log, idx) => (
+              <div
+                key={log.id ?? idx}
+                className="flex gap-2 items-start px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors group"
+              >
+                <span className="text-muted-foreground/30 shrink-0 font-bold tabular-nums text-[10px] pt-0.5 w-14">{log.time}</span>
+                <span className="text-[10px] shrink-0 pt-0.5">{LOG_LEVEL_PREFIX[log.level] ?? "•"}</span>
+                <span className={cn(
+                  "leading-relaxed flex-1 min-w-0 break-words",
+                  LOG_LEVEL_COLORS[log.level] ?? "text-foreground/70"
+                )}>
+                  {log.message}
+                </span>
+              </div>
+            ))}
           </div>
         )}
-        {logs.map((log) => (
-          <div key={log.id} className="flex gap-4 border-b border-white/5 pb-3 last:border-0 hover:bg-white/5 p-2 -mx-2 rounded-lg transition-colors">
-            <span className="text-muted-foreground/50 shrink-0 w-20 font-bold">[{log.time}]</span>
-            <span className={cn(
-              "leading-relaxed tracking-wide",
-              log.level === 'success' && 'text-success font-bold drop-shadow-[0_0_8px_rgba(34,197,94,0.3)]',
-              log.level === 'error' && 'text-destructive font-bold drop-shadow-[0_0_8px_rgba(248,113,113,0.3)]',
-              log.level === 'warning' && 'text-warning font-semibold',
-              log.level === 'info' && 'text-info font-semibold',
-              log.level === 'processing' && 'text-accent font-bold animate-pulse',
-            )}>
-              {log.message}
-            </span>
-          </div>
-        ))}
       </div>
+      {logs.length > MAX_DISPLAYED_LOGS && (
+        <p className="text-[10px] text-muted-foreground/40 text-center mt-2">
+          يعرض آخر {MAX_DISPLAYED_LOGS} سجل من أصل {logs.length}
+        </p>
+      )}
     </PremiumCard>
   );
 }

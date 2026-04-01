@@ -18,12 +18,15 @@ import {
   getSchedulerStatus,
   getSmartBotStatus,
   triggerScheduledPost,
+  forceTriggerScheduledPost,
   sendManualReport,
   getAnalyticsSummary,
   fetchYouTubeAnalytics,
   fetchFacebookAnalytics,
   fetchTikTokAnalytics,
   fetchBotAnalytics,
+  listYouTubeChannelVideos,
+  deleteYouTubeVideos,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -189,6 +192,44 @@ router.post("/scheduler/trigger", async (_req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ success: false, error: msg });
+  }
+});
+
+router.post("/scheduler/force-trigger", async (_req, res) => {
+  try {
+    const result = await forceTriggerScheduledPost();
+    if (result.success) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ success: false, error: result.message });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+router.get("/youtube/videos", async (_req, res) => {
+  try {
+    const result = await listYouTubeChannelVideos();
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.post("/youtube/delete-videos", async (req, res) => {
+  const { videoIds } = req.body as { videoIds: string[] };
+  if (!Array.isArray(videoIds) || videoIds.length === 0) {
+    return res.status(400).json({ error: "يرجى تمرير قائمة معرّفات الفيديوهات" });
+  }
+  try {
+    const result = await deleteYouTubeVideos(videoIds);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
   }
 });
 

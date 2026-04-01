@@ -10,7 +10,7 @@
   "ttsVoice": "ar-SA-HamedNeural",
   "duaaStyle": "تضرع وخشوع",
   "videoQuality": "fast",
-  "bgOpacity": 62,
+  "bgOpacity": 32,
   "showBackground": true,
   "geminiModel": "gemma-3-27b-it",
   "originalVolume": 35,

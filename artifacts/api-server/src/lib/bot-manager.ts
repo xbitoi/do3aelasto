@@ -655,6 +655,160 @@ export function triggerScheduledPost(): Promise<void> {
   return schedulerTick();
 }
 
+export async function forceTriggerScheduledPost(): Promise<{ success: boolean; message: string }> {
+  const settings = getSettings();
+  if (!settings.facebookToken) {
+    return { success: false, message: "لم تُضف توكن فيسبوك بعد — أضفه من الإعدادات المتقدمة" };
+  }
+  if (!geminiKeyStore) {
+    return { success: false, message: "البوت غير مُشغَّل — شغّل البوت أولاً" };
+  }
+  try {
+    addLog("🔘 تشغيل يدوي للنشر المجدوَل...", "info");
+    const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
+    const last = loadLastVideo();
+
+    let fbUrl: string | undefined;
+
+    if (last && settings.facebookToken) {
+      const fbRes = await publishToFacebook(last.videoPath, title, caption, settings.facebookToken);
+      if (fbRes.success) {
+        fbUrl = fbRes.url;
+        addLog(`✅ نشر يدوي فيسبوك: ${fbRes.url}`, "success");
+        recordPublish({
+          title,
+          duaaText: duaa,
+          platforms: [{ platform: "فيسبوك", success: true, url: fbRes.url, channelName: fbRes.pageName }],
+          scheduled: false,
+        });
+      } else {
+        addLog(`❌ فشل النشر اليدوي: ${fbRes.error}`, "error");
+        return { success: false, message: fbRes.error || "فشل النشر على فيسبوك" };
+      }
+    } else if (settings.facebookToken) {
+      const textOnlyCaption = `🤲 *${title}*\n\n${caption}`;
+      await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
+      });
+      addLog("📝 نشر نصي يدوي على فيسبوك (بدون فيديو)", "success");
+    }
+
+    if (botInstance && knownChatIds.size > 0) {
+      const duaaMsg = [
+        `🤲 *نشر مجدوَل — ${title}*`,
+        ``,
+        duaa.slice(0, 500),
+        ``,
+        `━━━━━━━━━━━━━━━`,
+        fbUrl ? `📘 *الرابط:* ${fbUrl}` : `📘 *تم النشر على فيسبوك*`,
+        `_سبحان الله وبحمده سبحان الله العظيم_`,
+      ].join("\n");
+      for (const chatId of knownChatIds) {
+        await botInstance.sendMessage(chatId, duaaMsg, { parse_mode: "Markdown", disable_web_page_preview: true }).catch(() => {});
+      }
+    }
+
+    return { success: true, message: fbUrl ? `✅ تم النشر: ${fbUrl}` : "✅ تم النشر النصي على فيسبوك" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.slice(0, 100) : "خطأ غير متوقع";
+    addLog(`❌ خطأ في النشر اليدوي: ${msg}`, "error");
+    return { success: false, message: msg };
+  }
+}
+
+export async function listYouTubeChannelVideos(): Promise<{ videos?: Array<{ id: string; title: string; publishedAt: string; thumbnail: string; duration: string; views: number; }>; error?: string }> {
+  const settings = getSettings();
+  const refreshToken = settings.youtubeToken;
+  const clientId = settings.youtubeClientId;
+  const clientSecret = settings.youtubeClientSecret;
+  if (!refreshToken || !clientId || !clientSecret) {
+    return { error: "لم يتم ربط حساب يوتيوب بعد" };
+  }
+  try {
+    const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+    if (!tokenRes.accessToken) return { error: tokenRes.error || "فشل تجديد رمز يوتيوب" };
+    const accessToken = tokenRes.accessToken;
+
+    const chRes = await fetch(
+      "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const chData = await chRes.json() as any;
+    const uploadsPlaylistId = chData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsPlaylistId) return { error: "تعذّر الحصول على قائمة الرفع" };
+
+    const plRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=25`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const plData = await plRes.json() as any;
+    const items = plData.items ?? [];
+    const videoIds = items.map((it: any) => it.contentDetails?.videoId).filter(Boolean);
+
+    if (videoIds.length === 0) return { videos: [] };
+
+    const detRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoIds.join(",")}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const detData = await detRes.json() as any;
+
+    const videos = (detData.items ?? []).map((v: any) => ({
+      id: v.id,
+      title: v.snippet?.title || "—",
+      publishedAt: v.snippet?.publishedAt || "",
+      thumbnail: v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url || "",
+      duration: v.contentDetails?.duration || "",
+      views: parseInt(v.statistics?.viewCount || "0"),
+    }));
+
+    return { videos };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+export async function deleteYouTubeVideos(videoIds: string[]): Promise<{ deleted: string[]; failed: Array<{ id: string; error: string }> }> {
+  const settings = getSettings();
+  const refreshToken = settings.youtubeToken;
+  const clientId = settings.youtubeClientId;
+  const clientSecret = settings.youtubeClientSecret;
+  if (!refreshToken || !clientId || !clientSecret) {
+    throw new Error("لم يتم ربط حساب يوتيوب بعد");
+  }
+  const tokenRes = await refreshYouTubeAccessToken(refreshToken, clientId, clientSecret);
+  if (!tokenRes.accessToken) throw new Error(tokenRes.error || "فشل تجديد رمز يوتيوب");
+  const accessToken = tokenRes.accessToken;
+
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+
+  for (const id of videoIds) {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?id=${id}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (res.status === 204 || res.ok) {
+        deleted.push(id);
+        addLog(`🗑️ تم حذف الفيديو: ${id}`, "success");
+      } else {
+        const errBody = await res.json().catch(() => ({})) as any;
+        const errMsg = errBody?.error?.message || `HTTP ${res.status}`;
+        failed.push({ id, error: errMsg });
+        addLog(`❌ فشل حذف الفيديو ${id}: ${errMsg}`, "error");
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "خطأ غير متوقع";
+      failed.push({ id, error: errMsg });
+    }
+  }
+
+  return { deleted, failed };
+}
+
 export async function sendManualReport(chatId: number): Promise<string> {
   try {
     const summary = getAnalyticsSummary();
@@ -2394,7 +2548,7 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
 
     addLog("🔊 تحويل الدعاء لصوت...", "processing");
     const audioPath = path.join(tmpDir, "audio.mp3");
-    await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration, settings.ttsVoice || "ar-SA-HamedNeural");
+    await generateTTS(duaaText, audioPath, settings.ttsSpeed, actualDuration, resolveVoice(settings.ttsVoice));
     checkCancelled(chatId);
 
     setOpStage(chatId, "معالجة الفيديو...");
@@ -2596,7 +2750,7 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
     const audioPath = path.join(tmpDir, "audio.mp3");
-    await generateTTS(duaaText, audioPath, settings.ttsSpeed, lastDuration, settings.ttsVoice || "ar-SA-HamedNeural");
+    await generateTTS(duaaText, audioPath, settings.ttsSpeed, lastDuration, resolveVoice(settings.ttsVoice));
     checkCancelled(chatId);
 
     // 4. Process last video with duaa overlay
@@ -3221,6 +3375,19 @@ ${opening.example}
   }
 
   throw new Error("فشل توليد الدعاء من جميع النماذج المتاحة.");
+}
+
+const ALL_TTS_VOICES = [
+  "ar-SA-HamedNeural", "ar-EG-ShakirNeural", "ar-KW-FahedNeural",
+  "ar-SA-ZariyahNeural", "ar-EG-SalmaNeural", "ar-AE-FatimaNeural",
+  "ar-MA-JamalNeural", "ar-LB-LaylaNeural",
+];
+
+function resolveVoice(voiceSetting: string | undefined): string {
+  if (!voiceSetting || voiceSetting === "random") {
+    return ALL_TTS_VOICES[Math.floor(Math.random() * ALL_TTS_VOICES.length)];
+  }
+  return voiceSetting;
 }
 
 async function generateTTS(text: string, outputPath: string, slow: boolean, videoDuration?: number, voice = "ar-SA-HamedNeural") {

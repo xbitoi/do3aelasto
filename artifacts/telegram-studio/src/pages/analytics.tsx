@@ -35,7 +35,7 @@ type Platform = "youtube" | "facebook" | "tiktok" | "bot";
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "م";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "ك";
-  return n.toLocaleString("ar-EG");
+  return n.toLocaleString("en-US");
 }
 
 function timeAgo(iso: string): string {
@@ -57,15 +57,32 @@ function parseDuration(iso?: string): string {
   return `${min}:${String(s).padStart(2,"0")}`;
 }
 
+function durationToSeconds(iso?: string): number {
+  if (!iso) return 999;
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 999;
+  return (parseInt(m[1] || "0") * 3600) + (parseInt(m[2] || "0") * 60) + parseInt(m[3] || "0");
+}
+
 // ─── Stat Mini Card ───────────────────────────────────────────────────────────
 
 function Mini({ icon: Icon, label, value, color }: { icon: React.ElementType; label: string; value: string | number; color: string }) {
+  const colorMap: Record<string, { bg: string; border: string; icon: string }> = {
+    "from-red-500":    { bg: "bg-red-500/10",    border: "border-red-500/25",    icon: "text-red-400" },
+    "from-blue-500":   { bg: "bg-blue-500/10",   border: "border-blue-500/25",   icon: "text-blue-400" },
+    "from-pink-500":   { bg: "bg-pink-500/10",   border: "border-pink-500/25",   icon: "text-pink-400" },
+    "from-green-500":  { bg: "bg-green-500/10",  border: "border-green-500/25",  icon: "text-green-400" },
+    "from-purple-500": { bg: "bg-purple-500/10", border: "border-purple-500/25", icon: "text-purple-400" },
+    "from-orange-500": { bg: "bg-orange-500/10", border: "border-orange-500/25", icon: "text-orange-400" },
+    "from-primary":    { bg: "bg-primary/10",    border: "border-primary/25",    icon: "text-primary" },
+  };
+  const style = colorMap[color] ?? colorMap["from-primary"];
+
   return (
-    <div className="relative rounded-2xl bg-black/30 border border-border/40 p-4 overflow-hidden group hover:border-border/70 transition-all">
-      <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br", color, "to-transparent opacity-[0.04]")} />
+    <div className={cn("relative rounded-2xl border p-4 overflow-hidden group hover:shadow-lg transition-all", style.bg, style.border)}>
       <div className="flex items-center gap-3">
-        <div className={cn("p-2 rounded-xl border", color.includes("red") ? "bg-red-500/10 border-red-500/20" : color.includes("blue") ? "bg-blue-500/10 border-blue-500/20" : color.includes("pink") ? "bg-pink-500/10 border-pink-500/20" : color.includes("green") ? "bg-green-500/10 border-green-500/20" : color.includes("purple") ? "bg-purple-500/10 border-purple-500/20" : "bg-primary/10 border-primary/20")}>
-          <Icon className={cn("w-4 h-4", color.includes("red") ? "text-red-400" : color.includes("blue") ? "text-blue-400" : color.includes("pink") ? "text-pink-400" : color.includes("green") ? "text-green-400" : color.includes("purple") ? "text-purple-400" : "text-primary")} />
+        <div className={cn("p-2 rounded-xl border", style.bg, style.border)}>
+          <Icon className={cn("w-4 h-4", style.icon)} />
         </div>
         <div>
           <p className="text-xs text-muted-foreground font-semibold">{label}</p>
@@ -132,12 +149,13 @@ interface EarningsItem { label: string; low: number; high: number; real?: number
 function EarningsBar({ items, note, accent = "yellow" }: {
   items: EarningsItem[];
   note: string;
-  accent?: "yellow" | "green" | "pink";
+  accent?: "yellow" | "green" | "pink" | "blue";
 }) {
   const colors = {
-    yellow: { border: "border-yellow-500/20", bg: "bg-yellow-500/6", icon: "text-yellow-400", val: "text-yellow-400", realBg: "bg-green-500/10 border-green-500/20" },
-    green:  { border: "border-green-500/20",  bg: "bg-green-500/6",  icon: "text-green-400",  val: "text-green-400",  realBg: "bg-green-500/10 border-green-500/20" },
-    pink:   { border: "border-pink-500/20",   bg: "bg-pink-500/6",   icon: "text-pink-400",   val: "text-pink-400",   realBg: "bg-green-500/10 border-green-500/20" },
+    yellow: { border: "border-yellow-500/20", bg: "bg-yellow-500/6", icon: "text-yellow-400", val: "text-yellow-400" },
+    green:  { border: "border-green-500/20",  bg: "bg-green-500/6",  icon: "text-green-400",  val: "text-green-400" },
+    pink:   { border: "border-pink-500/20",   bg: "bg-pink-500/6",   icon: "text-pink-400",   val: "text-pink-400" },
+    blue:   { border: "border-blue-500/20",   bg: "bg-blue-500/6",   icon: "text-blue-400",   val: "text-blue-400" },
   }[accent];
 
   return (
@@ -176,6 +194,13 @@ function EarningsBar({ items, note, accent = "yellow" }: {
 
 function YouTubeAnalytics({ data }: { data: YTData }) {
   const { channel, videos, earnings } = data;
+  const [ytTab, setYtTab] = useState<"videos" | "shorts">("videos");
+
+  const regularVideos = videos.filter(v => durationToSeconds(v.duration) >= 60);
+  const shortVideos   = videos.filter(v => durationToSeconds(v.duration) <  60);
+
+  const displayedVideos = ytTab === "videos" ? regularVideos : shortVideos;
+
   const totalVideoViews = videos.reduce((s, v) => s + v.views, 0);
   const totalLikes = videos.reduce((s, v) => s + v.likes, 0);
 
@@ -218,46 +243,86 @@ function YouTubeAnalytics({ data }: { data: YTData }) {
         <Mini icon={Users} label="المشتركون" value={channel.hiddenSubscriberCount ? "مخفي" : channel.subscriberCount} color="from-red-500" />
         <Mini icon={Eye} label="إجمالي المشاهدات" value={channel.viewCount} color="from-red-500" />
         <Mini icon={Video} label="عدد الفيديوهات" value={channel.videoCount} color="from-red-500" />
-        <Mini icon={Eye} label="مشاهدات آخر 10 فيديوهات" value={totalVideoViews} color="from-orange-500" />
-        <Mini icon={ThumbsUp} label="إعجابات آخر 10 فيديوهات" value={totalLikes} color="from-orange-500" />
+        <Mini icon={Eye} label="مشاهدات آخر 10" value={totalVideoViews} color="from-orange-500" />
+        <Mini icon={ThumbsUp} label="إعجابات آخر 10" value={totalLikes} color="from-orange-500" />
         <Mini icon={TrendingUp} label="معدّل التفاعل" value={totalVideoViews > 0 ? `${((totalLikes / totalVideoViews) * 100).toFixed(2)}%` : "—"} color="from-green-500" />
       </div>
 
-      {/* Recent Videos */}
+      {/* Recent Videos — with tabs Videos/Shorts */}
       {videos.length > 0 && (
         <div className="rounded-[2rem] bg-card border border-border shadow-2xl overflow-hidden">
-          <div className="px-6 py-5 border-b border-border/50 flex items-center gap-3">
+          <div className="px-6 py-5 border-b border-border/50 flex items-center gap-3 flex-wrap">
             <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-xl">
               <Play className="w-4 h-4 text-red-400" />
             </div>
-            <h4 className="font-black text-foreground text-lg">آخر الفيديوهات</h4>
-          </div>
-          <div className="divide-y divide-border/30">
-            {videos.map((v) => (
-              <div key={v.id} className="flex items-start gap-4 p-4 hover:bg-white/[0.02] transition-colors">
-                {v.thumbnail && (
-                  <img src={v.thumbnail} alt={v.title} className="w-24 h-16 rounded-xl object-cover border border-border/30 shrink-0" />
+            <h4 className="font-black text-foreground text-lg flex-1">آخر الفيديوهات</h4>
+            {/* Video / Shorts tabs */}
+            <div className="flex gap-1.5 bg-black/30 p-1 rounded-xl border border-border/40">
+              <button
+                onClick={() => setYtTab("videos")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all",
+                  ytTab === "videos"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30 shadow"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
-                <div className="flex-1 min-w-0">
-                  <a
-                    href={`https://youtu.be/${v.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm font-bold text-foreground hover:text-red-400 transition-colors line-clamp-2 leading-snug"
-                  >
-                    {v.title}
-                  </a>
-                  <div className="flex items-center gap-3 mt-2 flex-wrap">
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Eye className="w-3 h-3" />{fmtNum(v.views)}</span>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><ThumbsUp className="w-3 h-3" />{fmtNum(v.likes)}</span>
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><MessageCircle className="w-3 h-3" />{fmtNum(v.comments)}</span>
-                    <span className="text-[11px] text-muted-foreground/50">{parseDuration(v.duration)}</span>
-                    <span className="text-[11px] text-muted-foreground/50 mr-auto">{timeAgo(v.publishedAt)}</span>
+              >
+                <Video className="w-3 h-3" />
+                فيديوهات ({regularVideos.length})
+              </button>
+              <button
+                onClick={() => setYtTab("shorts")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all",
+                  ytTab === "shorts"
+                    ? "bg-orange-500/20 text-orange-400 border border-orange-500/30 shadow"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="text-sm">▶</span>
+                شورتس ({shortVideos.length})
+              </button>
+            </div>
+          </div>
+
+          {displayedVideos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/40 gap-2">
+              <Video className="w-8 h-8 opacity-30" />
+              <p className="text-sm font-bold">لا توجد {ytTab === "shorts" ? "شورتس" : "فيديوهات"} في آخر 10 مقاطع</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {displayedVideos.map((v) => (
+                <div key={v.id} className="flex items-start gap-4 p-4 hover:bg-white/[0.02] transition-colors">
+                  {v.thumbnail && (
+                    <img src={v.thumbnail} alt={v.title} className="w-24 h-16 rounded-xl object-cover border border-border/30 shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      {durationToSeconds(v.duration) < 60 && (
+                        <span className="text-[10px] font-black bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-md">SHORT</span>
+                      )}
+                    </div>
+                    <a
+                      href={`https://youtu.be/${v.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-bold text-foreground hover:text-red-400 transition-colors line-clamp-2 leading-snug"
+                    >
+                      {v.title}
+                    </a>
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Eye className="w-3 h-3" />{fmtNum(v.views)}</span>
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1"><ThumbsUp className="w-3 h-3" />{fmtNum(v.likes)}</span>
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1"><MessageCircle className="w-3 h-3" />{fmtNum(v.comments)}</span>
+                      <span className="text-[11px] text-muted-foreground/50">{parseDuration(v.duration)}</span>
+                      <span className="text-[11px] text-muted-foreground/50 mr-auto">{timeAgo(v.publishedAt)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -291,14 +356,14 @@ function FacebookAnalytics({ data }: { data: FBData }) {
         </div>
       </div>
 
-      {/* Earnings – compact bar */}
-      {earnings && (earnings.estMonthlyLow > 0 || earnings.estMonthlyHigh > 0) && (
+      {/* Earnings – compact bar (like YouTube) */}
+      {earnings && (
         <EarningsBar
-          accent="yellow"
+          accent="blue"
           items={[
             { label: "شهرياً (تقديري)", low: earnings.estMonthlyLow, high: earnings.estMonthlyHigh },
           ]}
-          note={`CPM تقديري $0.5–$2 / 1000 انطباع · بناءً على ${fmtNum(insights.weeklyImpressions * 4)} انطباع شهري`}
+          note={`CPM فيسبوك تقديري $0.5–$2 / 1000 انطباع · بناءً على ${fmtNum(insights.weeklyImpressions * 4)} انطباع شهري`}
         />
       )}
 
@@ -664,7 +729,7 @@ export function Analytics() {
         </button>
       </div>
 
-      {/* Platform Tabs — horizontal scroll on mobile */}
+      {/* Platform Tabs */}
       <div className="relative">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap scrollbar-hide">
           {PLATFORMS.map(({ id, label, icon: Icon, accent }) => (

@@ -25,13 +25,17 @@ A professional Arabic RTL web dashboard for controlling a Telegram bot that proc
 **Features:**
 - Control panel to start/stop Telegram bot
 - Gemini API key + Bot Token input
-- Text overlay settings: font (BeIn/Boutros/Dima/Takeaway), size, position, stroke
+- Text overlay settings: font (BeIn/Boutros/Dima/Takeaway), size, position, stroke, background (showBackground/bgOpacity)
 - Color pickers: text color, active word color
-- TTS (gTTS via Python) for Arabic speech
+- TTS (Edge TTS via Python) with voice selection incl. "عشوائي" (random from 8 Arabic voices)
 - Video processing: ffmpeg overlays Duaa text + audio onto received videos
 - Word synchronization: blue highlight follows audio playback
-- Real-time log panel via polling /api/bot/status
-- Three pages: لوحة التحكم, إعدادات متقدمة, دليل الاستخدام
+- Real-time log panel (max 80 entries, fixed 420px height, color-coded by level)
+- Pages: لوحة التحكم, البوت الذكي, تحليل الأداء, إعدادات متقدمة, دليل الاستخدام
+- Analytics: YouTube (Videos/Shorts tabs with duration detection), Facebook earnings (blue bar), TikTok
+- All numbers display in English numerals (en-US locale)
+- YouTube video management: list + multi-select bulk delete
+- Scheduled Facebook post with force trigger (bypasses date/time check) + Telegram copy
 
 **Tech:**
 - React + Vite at `/`

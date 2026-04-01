@@ -176,6 +176,9 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
   const [models, setModels] = useState<string[]>(DEFAULT_GEMINI_MODELS);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [previewingAudio, setPreviewingAudio] = useState(false);
+  const [textSizesOpen, setTextSizesOpen] = useState(false);
+  const [voicesOpen, setVoicesOpen] = useState(false);
+  const [volumeOpen, setVolumeOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
 
@@ -250,10 +253,26 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                {label: "Dima - قرآني", value: "Dima"},
                {label: "Takeaway - عصري", value: "Takeaway"}
              ]} />
-             <Slider label="حجم الخط" min={20} max={150} step={1} value={settings.fontSize} onChange={(v: number) => setSettings({...settings, fontSize: v})} unit="px" />
-             <Slider label="الموضع العمودي" min={10} max={95} step={1} value={settings.yPosition} onChange={(v: number) => setSettings({...settings, yPosition: v})} unit="%" />
-             <Slider label="ارتفاع السطر" min={1.0} max={3.0} step={0.1} value={settings.lineHeight} onChange={(v: number) => setSettings({...settings, lineHeight: v})} unit="x" />
-             <Slider label="سُمك الحدود" min={0} max={10} step={1} value={settings.strokeThickness} onChange={(v: number) => setSettings({...settings, strokeThickness: v})} unit="px" />
+
+             {/* Collapsible: font size & position */}
+             <button
+               onClick={() => setTextSizesOpen(!textSizesOpen)}
+               className="flex items-center justify-between w-full py-2 px-3 rounded-xl bg-primary/5 border border-primary/15 hover:bg-primary/10 transition-all text-xs font-bold text-foreground/80"
+             >
+               <span className="flex items-center gap-2">
+                 <span>⚙️</span>
+                 <span>الحجم والموضع والحدود</span>
+               </span>
+               <span className={cn("transition-transform duration-200 text-primary", textSizesOpen ? "rotate-180" : "")}>▼</span>
+             </button>
+             {textSizesOpen && (
+               <div className="space-y-4 pl-2 border-r border-primary/20 pr-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                 <Slider label="حجم الخط" min={20} max={150} step={1} value={settings.fontSize} onChange={(v: number) => setSettings({...settings, fontSize: v})} unit="px" />
+                 <Slider label="الموضع العمودي" min={10} max={95} step={1} value={settings.yPosition} onChange={(v: number) => setSettings({...settings, yPosition: v})} unit="%" />
+                 <Slider label="ارتفاع السطر" min={1.0} max={3.0} step={0.1} value={settings.lineHeight} onChange={(v: number) => setSettings({...settings, lineHeight: v})} unit="x" />
+                 <Slider label="سُمك الحدود" min={0} max={10} step={1} value={settings.strokeThickness} onChange={(v: number) => setSettings({...settings, strokeThickness: v})} unit="px" />
+               </div>
+             )}
 
              <div className="pt-3 border-t border-primary/20 space-y-3">
                <p className="text-xs font-bold text-primary/80 flex items-center gap-1.5">
@@ -434,6 +453,74 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  )}
                </div>
              )}
+
+             {/* Shadow color section */}
+             <div className="pt-3 border-t border-border/50 space-y-3">
+               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                 <Layers className="w-3.5 h-3.5 text-info" />
+                 لون ظل النص
+               </p>
+               <div className="grid grid-cols-2 gap-2">
+                 <button
+                   onClick={() => setSettings({...settings, shadowColorMode: "fixed"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.shadowColorMode ?? "fixed") === "fixed"
+                       ? "border-info/70 bg-info/15 text-info shadow-[0_0_10px_rgba(6,182,212,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >🌑 لون محدد</button>
+                 <button
+                   onClick={() => setSettings({...settings, shadowColorMode: "random"})}
+                   className={cn(
+                     "py-2.5 px-3 rounded-xl border text-xs font-bold transition-all",
+                     (settings.shadowColorMode ?? "fixed") === "random"
+                       ? "border-amber-500/70 bg-amber-500/15 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                       : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                   )}
+                 >🎲 عشوائي</button>
+               </div>
+               {(settings.shadowColorMode ?? "fixed") === "fixed" && (
+                 <>
+                   <div className="grid grid-cols-5 gap-2">
+                     {[
+                       { color: "#000000", label: "أسود" },
+                       { color: "#1E1B4B", label: "كحلي" },
+                       { color: "#14532D", label: "أخضر غامق" },
+                       { color: "#7C2D12", label: "بني غامق" },
+                       { color: "#581C87", label: "بنفسجي غامق" },
+                       { color: "#1E3A5F", label: "أزرق داكن" },
+                       { color: "#831843", label: "عنابي" },
+                       { color: "#164E63", label: "سماوي داكن" },
+                       { color: "#3F1515", label: "أحمر داكن" },
+                       { color: "#374151", label: "رمادي" },
+                     ].map((p) => (
+                       <button
+                         key={p.color}
+                         title={p.label}
+                         onClick={() => setSettings({...settings, shadowColor: p.color})}
+                         className={cn(
+                           "w-full aspect-square rounded-xl border-2 transition-all hover:scale-110",
+                           (settings.shadowColor ?? "#000000") === p.color
+                             ? "border-white scale-110 shadow-lg"
+                             : "border-transparent"
+                         )}
+                         style={{ backgroundColor: p.color }}
+                       />
+                     ))}
+                   </div>
+                   <ColorPicker label="لون مخصص" value={settings.shadowColor ?? "#000000"} onChange={(v: string) => setSettings({...settings, shadowColor: v})} />
+                 </>
+               )}
+               {(settings.shadowColorMode ?? "fixed") === "random" && (
+                 <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl px-4 py-3">
+                   <span className="text-lg">🎲</span>
+                   <p className="text-xs text-foreground/70 leading-relaxed">
+                     لون <span className="text-amber-400 font-black">ظل النص</span> سيتغير عشوائياً في كل فيديو لتنوع بصري تلقائي
+                   </p>
+                 </div>
+               )}
+             </div>
            </div>
         )}
         
@@ -451,11 +538,18 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              ]} />
 
              <div className="space-y-2">
-               <label className="text-xs font-bold text-foreground/80 flex items-center gap-1.5">
-                 <Mic2 className="w-3.5 h-3.5 text-primary" />
-                 الصوت المُستخدم
-               </label>
-               <div className="space-y-1.5">
+               <button
+                 onClick={() => setVoicesOpen(!voicesOpen)}
+                 className="flex items-center justify-between w-full py-2 px-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 hover:bg-emerald-500/10 transition-all text-xs font-bold text-foreground/80"
+               >
+                 <span className="flex items-center gap-2">
+                   <Mic2 className="w-3.5 h-3.5 text-emerald-400" />
+                   <span>اختيار الصوت المُستخدم</span>
+                 </span>
+                 <span className={cn("transition-transform duration-200 text-emerald-400", voicesOpen ? "rotate-180" : "")}>▼</span>
+               </button>
+               {voicesOpen && (
+               <div className="space-y-1.5 pl-2 border-r border-emerald-500/20 pr-3 animate-in fade-in slide-in-from-top-2 duration-200">
                  {/* Random voice option */}
                  <button
                    onClick={() => setSettings({...settings, ttsVoice: "random"})}
@@ -534,6 +628,7 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                    ))}
                  </div>
                </div>
+               )}
              </div>
 
              <div className="pt-3 border-t border-border/50 space-y-2">
@@ -573,11 +668,18 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              </div>
 
              <div className="pt-3 border-t border-border/50 space-y-4">
-               <p className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
-                 <Volume2 className="w-3.5 h-3.5 text-primary" />
-                 التحكم في مستوى الصوت
-               </p>
-
+               <button
+                 onClick={() => setVolumeOpen(!volumeOpen)}
+                 className="flex items-center justify-between w-full py-2 px-3 rounded-xl bg-primary/5 border border-primary/15 hover:bg-primary/10 transition-all text-xs font-bold text-foreground/80"
+               >
+                 <span className="flex items-center gap-2">
+                   <Volume2 className="w-3.5 h-3.5 text-primary" />
+                   <span>التحكم في مستوى الصوت</span>
+                 </span>
+                 <span className={cn("transition-transform duration-200 text-primary", volumeOpen ? "rotate-180" : "")}>▼</span>
+               </button>
+               {volumeOpen && (
+               <div className="space-y-4">
                {/* Duaa volume + mute */}
                <div className="space-y-1.5">
                  <div className="flex items-center justify-between">
@@ -632,6 +734,8 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
                  الدعاء: <span className="text-primary font-bold">{(settings.muteDuaa ?? false) ? "مكتوم" : `${settings.duaaVolume ?? 120}%`}</span>
                  &nbsp;·&nbsp; الأصلي: <span className="text-foreground/70 font-bold">{(settings.muteOriginal ?? false) ? "مكتوم" : `${settings.originalVolume ?? 90}%`}</span>
                </div>
+               </div>
+               )}
              </div>
 
              <div className="pt-3 border-t border-border/50">
@@ -822,15 +926,49 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
           <span className="text-foreground/80 font-semibold">{settings.fontSize}px</span>
           <span className="font-bold">الموضع:</span>
           <span className="text-foreground/80 font-semibold">{settings.yPosition}%</span>
+          <span className="font-bold">سُمك الحدود:</span>
+          <span className="text-foreground/80 font-semibold">{settings.strokeThickness ?? 2}px</span>
+          <span className="font-bold">نسبة الأبعاد:</span>
+          <span className="text-foreground/80 font-semibold">{settings.aspectRatio ?? "9:16"}</span>
+          <span className="font-bold">تأثير الكلمة:</span>
+          <span className="text-foreground/80 font-semibold">{settings.wordEffect ?? "zoom"}</span>
+          <span className="font-bold">الانتقال:</span>
+          <span className="text-foreground/80 font-semibold">{settings.transitionEffect ?? "fade"} / {settings.transitionDuration ?? 0.5}ث</span>
+          <span className="font-bold">خلفية الكلمة:</span>
+          <span className="text-foreground/80 font-semibold">
+            {(settings.showBackground ?? true)
+              ? `${settings.bgOpacity ?? 40}% — ${(settings.bgColorMode ?? "fixed") === "random" ? "عشوائي" : (settings.bgColor ?? "#3B82F6")}`
+              : "مخفية"}
+          </span>
           <span className="font-bold">لون النص:</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: settings.textColor }} />
+            <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.textColor }} />
             <span className="text-foreground/80 font-mono">{settings.textColor}</span>
           </span>
           <span className="font-bold">لون النشط:</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: settings.activeColor }} />
+            <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.activeColor }} />
             <span className="text-foreground/80 font-mono">{settings.activeColor}</span>
+          </span>
+          <span className="font-bold">لون الظل:</span>
+          <span className="flex items-center gap-1.5">
+            {(settings.shadowColorMode ?? "fixed") === "random"
+              ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
+              : <>
+                  <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.shadowColor ?? "#000000" }} />
+                  <span className="text-foreground/80 font-mono">{settings.shadowColor ?? "#000000"}</span>
+                </>
+            }
+          </span>
+          <span className="font-bold">لون الخلفية:</span>
+          <span className="flex items-center gap-1.5">
+            {(settings.bgColorMode ?? "fixed") === "random"
+              ? <span className="text-amber-400 font-bold">عشوائي 🎲</span>
+              : <>
+                  <span className="w-3.5 h-3.5 rounded-full border border-white/20 flex-shrink-0" style={{ background: settings.bgColor ?? "#3B82F6" }} />
+                  <span className="text-foreground/80 font-mono">{settings.bgColor ?? "#3B82F6"}</span>
+                </>
+            }
           </span>
         </div>
 
@@ -974,7 +1112,6 @@ export function Dashboard() {
       
       <div className="lg:col-span-7 flex flex-col gap-8 lg:gap-10 h-full">
         <PreviewCard settings={settings} />
-        <StatusCard status={status} />
         <LogsCard logs={status?.logs || []} />
       </div>
     </div>

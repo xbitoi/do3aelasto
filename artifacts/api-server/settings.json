@@ -1,7 +1,7 @@
 {
   "font": "Boutros",
-  "fontSize": 136,
-  "yPosition": 78,
+  "fontSize": 141,
+  "yPosition": 79,
   "lineHeight": 1.5,
   "strokeThickness": 0,
   "textColor": "#ffff00",
@@ -10,16 +10,16 @@
   "ttsVoice": "random",
   "duaaStyle": "عشوائي",
   "videoQuality": "fast",
-  "bgOpacity": 90,
+  "bgOpacity": 75,
   "showBackground": true,
   "geminiModel": "gemma-3-27b-it",
-  "originalVolume": 10,
+  "originalVolume": 15,
   "duaaVolume": 260,
   "muteOriginal": false,
   "muteDuaa": false,
   "wordEffect": "random",
   "transitionEffect": "random",
-  "transitionDuration": 1,
+  "transitionDuration": 1.1,
   "youtubeToken": "1//04xxtDtd1upIYCgYIARAAGAQSNwF-L9Irr2cDyyXVThv4MBc1YUQ9bKlMpEmr3DwNn1BGqrejbgHsHLUmdhirfXQwVHKj6cspWGg",
   "youtubeClientId": "1090215758795-5ii4t9gkdkl3inv8hvda248pv53r00nn.apps.googleusercontent.com",
   "youtubeClientSecret": "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",
@@ -38,5 +38,7 @@
   "weeklyReportDay": 5,
   "smartBotEnabled": true,
   "managedChannelIds": "UCmBhsaxoXMNlXbDRivDzMiw, 1008532579015236",
-  "smartBotAdminChatId": "1153411920"
+  "smartBotAdminChatId": "1153411920",
+  "bgColor": "#10B981",
+  "bgColorMode": "fixed"
 }

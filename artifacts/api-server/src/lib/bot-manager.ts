@@ -36,6 +36,8 @@ export interface AppSettings {
   bgColor: string;
   bgColorMode: string;
   showBackground: boolean;
+  shadowColor: string;
+  shadowColorMode: string;
   geminiModel: string;
   originalVolume: number;
   duaaVolume: number;
@@ -87,6 +89,8 @@ export const defaultSettings: AppSettings = {
   bgColor: "#3B82F6",
   bgColorMode: "fixed",
   showBackground: true,
+  shadowColor: "#000000",
+  shadowColorMode: "fixed",
   geminiModel: "auto",
   originalVolume: 90,
   duaaVolume: 120,

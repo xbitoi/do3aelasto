@@ -271,6 +271,7 @@ def _render_word_pil(
     stroke_thickness,
     bg_color=None,
     bg_opacity=40,
+    shadow_color=None,
 ):
     from PIL import Image, ImageDraw, ImageFont
     from ai_processor import reshape_arabic
@@ -292,10 +293,15 @@ def _render_word_pil(
     full_text = " ".join([w for w, _, _ in all_words])
     reshaped_full = reshape_arabic(full_text)
 
-    shadow_offset = max(2, stroke_thickness // 2)
+    s_col = shadow_color if shadow_color is not None else (0, 0, 0)
+    shadow_offset = max(4, stroke_thickness)
+    draw.text(
+        (img_w // 2 + shadow_offset + 1, img_h // 2 + shadow_offset + 1),
+        reshaped_full, font=font, fill=(*s_col, 200), anchor="mm"
+    )
     draw.text(
         (img_w // 2 + shadow_offset, img_h // 2 + shadow_offset),
-        reshaped_full, font=font, fill=(0, 0, 0, 180), anchor="mm"
+        reshaped_full, font=font, fill=(*s_col, 255), anchor="mm"
     )
 
     if stroke_thickness > 0:
@@ -662,7 +668,7 @@ def _merge_and_process_sync(
     show_background = settings.get("show_background", True)
     bg_opacity_val = settings.get("bg_opacity", 40)
     bg_color_mode = settings.get("bg_color_mode", "fixed")
-    RANDOM_BG_COLORS = [
+    RANDOM_COLORS = [
         (99, 102, 241), (59, 130, 246), (16, 185, 129), (245, 158, 11),
         (239, 68, 68), (139, 92, 246), (236, 72, 153), (6, 182, 212),
         (34, 197, 94), (249, 115, 22),
@@ -671,12 +677,19 @@ def _merge_and_process_sync(
         bg_color_for_render = None
         bg_opacity_for_render = 0
     elif bg_color_mode == "random":
-        bg_color_for_render = random.choice(RANDOM_BG_COLORS)
+        bg_color_for_render = random.choice(RANDOM_COLORS)
         bg_opacity_for_render = bg_opacity_val
     else:
         raw_bg = settings.get("bg_color", "#3B82F6")
         bg_color_for_render = hex_to_rgb(raw_bg) if show_background else None
         bg_opacity_for_render = bg_opacity_val
+
+    shadow_color_mode = settings.get("shadow_color_mode", "fixed")
+    if shadow_color_mode == "random":
+        shadow_color_for_render = random.choice(RANDOM_COLORS)
+    else:
+        raw_shadow = settings.get("shadow_color", "#000000")
+        shadow_color_for_render = hex_to_rgb(raw_shadow)
 
     text_clips = []
 
@@ -700,6 +713,7 @@ def _merge_and_process_sync(
             stroke_thickness=stroke_thickness,
             bg_color=bg_color_for_render,
             bg_opacity=bg_opacity_for_render,
+            shadow_color=shadow_color_for_render,
         )
         rgba_arr = np.array(rgba_img)
 
@@ -735,6 +749,7 @@ def _merge_and_process_sync(
             stroke_thickness=stroke_thickness,
             bg_color=bg_color_for_render,
             bg_opacity=0,
+            shadow_color=shadow_color_for_render,
         )
         base_arr = np.array(base_rgba)
         img_h_base = base_arr.shape[0]

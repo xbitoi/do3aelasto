@@ -88,4 +88,16 @@ export interface AppSettings {
   facebookToken?: string;
   tiktokToken?: string;
   publishDescription?: string;
+  scheduledFbPostEnabled?: boolean;
+  scheduledFbPostTime?: string;
+  scheduledFbPostDays?: string;
+  scheduledDuaaStyle?: string;
+  youtubeAutoCaption?: boolean;
+  captionTranslateLang?: string;
+  autoReportEnabled?: boolean;
+  autoReportChatId?: string;
+  weeklyReportDay?: number;
+  smartBotEnabled?: boolean;
+  managedChannelIds?: string;
+  smartBotAdminChatId?: string;
 }

@@ -55,6 +55,7 @@ export interface AppSettings {
   scheduledFbPostEnabled: boolean;
   scheduledFbPostTime: string;
   scheduledFbPostDays: string;
+  scheduledDuaaStyle: string;
   // YouTube captions
   youtubeAutoCaption: boolean;
   captionTranslateLang: string;
@@ -100,6 +101,7 @@ export const defaultSettings: AppSettings = {
   scheduledFbPostEnabled: false,
   scheduledFbPostTime: "08:00",
   scheduledFbPostDays: "all",
+  scheduledDuaaStyle: "عشوائي",
   youtubeAutoCaption: false,
   captionTranslateLang: "en",
   autoReportEnabled: false,
@@ -532,7 +534,7 @@ async function schedulerTick() {
     lastScheduledPostDate = dateKey;
     addLog("⏰ نشر مجدوَل — فيسبوك (نص دعاء)", "info");
     try {
-      const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
+      const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore, settings.scheduledDuaaStyle);
       if (settings.facebookToken) {
         const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
         const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
@@ -676,7 +678,7 @@ export async function forceTriggerScheduledPost(): Promise<{ success: boolean; m
   }
   try {
     addLog("🔘 تشغيل يدوي للنشر المجدوَل (نص دعاء)...", "info");
-    const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore);
+    const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore, settings.scheduledDuaaStyle);
 
     // Always post text-only — no video upload
     const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
@@ -810,6 +812,128 @@ export async function deleteYouTubeVideos(videoIds: string[]): Promise<{ deleted
       const errMsg = err instanceof Error ? err.message : "خطأ غير متوقع";
       failed.push({ id, error: errMsg });
     }
+  }
+
+  return { deleted, failed };
+}
+
+export async function listTikTokVideos(): Promise<{ videos?: Array<{ id: string; title: string; cover: string; shareUrl: string; views: number; createdAt: string | null }>; error?: string }> {
+  const settings = getSettings();
+  const token = settings.tiktokToken;
+  if (!token) return { error: "لم يتم ربط حساب تيك توك بعد" };
+  try {
+    const res = await fetch(
+      "https://open.tiktokapis.com/v2/video/list/?fields=id,title,cover_image_url,share_url,view_count,create_time",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ max_count: 20 }),
+      }
+    );
+    const data = await res.json() as any;
+    if (!res.ok || (data.error && data.error.code !== "ok")) {
+      return { error: data.error?.message || "تعذّر جلب الفيديوهات" };
+    }
+    const videos = (data.data?.videos ?? []).map((v: any) => ({
+      id: v.id,
+      title: v.title || "—",
+      cover: v.cover_image_url || "",
+      shareUrl: v.share_url || `https://www.tiktok.com/video/${v.id}`,
+      views: v.view_count ?? 0,
+      createdAt: v.create_time ? new Date(v.create_time * 1000).toISOString() : null,
+    }));
+    return { videos };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+export async function deleteTikTokVideos(videoIds: string[]): Promise<{ deleted: string[]; failed: Array<{ id: string; error: string }> }> {
+  const settings = getSettings();
+  const token = settings.tiktokToken;
+  if (!token) throw new Error("لم يتم ربط حساب تيك توك بعد");
+
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+
+  for (const id of videoIds) {
+    try {
+      const res = await fetch("https://open.tiktokapis.com/v2/video/delete/", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: id }),
+      });
+      const data = await res.json() as any;
+      if (res.ok && (!data.error || data.error.code === "ok")) {
+        deleted.push(id);
+        addLog(`🗑️ تم حذف فيديو تيك توك: ${id}`, "success");
+      } else {
+        const errMsg = data.error?.message || `HTTP ${res.status}`;
+        failed.push({ id, error: errMsg });
+        addLog(`❌ فشل حذف فيديو تيك توك ${id}: ${errMsg}`, "error");
+      }
+    } catch (err) {
+      failed.push({ id, error: err instanceof Error ? err.message : "خطأ غير متوقع" });
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  return { deleted, failed };
+}
+
+export async function listFacebookVideos(): Promise<{ videos?: Array<{ id: string; title: string; description: string; thumbnail: string; createdAt: string; views: number }>; error?: string }> {
+  const settings = getSettings();
+  const token = settings.facebookToken;
+  if (!token) return { error: "لم يتم ربط حساب فيسبوك بعد" };
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v21.0/me/videos?fields=id,title,description,thumbnails,created_time,views&limit=25&access_token=${token}`
+    );
+    const data = await res.json() as any;
+    if (!res.ok || data.error) {
+      return { error: data.error?.message || "تعذّر جلب الفيديوهات" };
+    }
+    const videos = (data.data ?? []).map((v: any) => ({
+      id: v.id,
+      title: v.title || "—",
+      description: v.description || "",
+      thumbnail: v.thumbnails?.data?.[0]?.uri || "",
+      createdAt: v.created_time || "",
+      views: v.views ?? 0,
+    }));
+    return { videos };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "خطأ غير متوقع" };
+  }
+}
+
+export async function deleteFacebookVideos(videoIds: string[]): Promise<{ deleted: string[]; failed: Array<{ id: string; error: string }> }> {
+  const settings = getSettings();
+  const token = settings.facebookToken;
+  if (!token) throw new Error("لم يتم ربط حساب فيسبوك بعد");
+
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+
+  for (const id of videoIds) {
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v21.0/${id}?access_token=${token}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json() as any;
+      if (res.ok && (data.success === true || data.result === "true")) {
+        deleted.push(id);
+        addLog(`🗑️ تم حذف فيديو فيسبوك: ${id}`, "success");
+      } else {
+        const errMsg = data.error?.message || `HTTP ${res.status}`;
+        failed.push({ id, error: errMsg });
+        addLog(`❌ فشل حذف فيديو فيسبوك ${id}: ${errMsg}`, "error");
+      }
+    } catch (err) {
+      failed.push({ id, error: err instanceof Error ? err.message : "خطأ غير متوقع" });
+    }
+    await new Promise(r => setTimeout(r, 500));
   }
 
   return { deleted, failed };

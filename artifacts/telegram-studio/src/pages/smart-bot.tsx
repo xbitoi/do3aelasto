@@ -62,6 +62,18 @@ export function SmartBot() {
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(new Set());
   const [deletingVideos, setDeletingVideos] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const [ttVideos, setTtVideos] = useState<Array<{ id: string; title: string; cover: string; shareUrl: string; views: number; createdAt: string | null }> | null>(null);
+  const [ttVideosLoading, setTtVideosLoading] = useState(false);
+  const [selectedTtIds, setSelectedTtIds] = useState<Set<string>>(new Set());
+  const [deletingTt, setDeletingTt] = useState(false);
+  const [confirmTtDelete, setConfirmTtDelete] = useState(false);
+
+  const [fbVideos, setFbVideos] = useState<Array<{ id: string; title: string; description: string; thumbnail: string; createdAt: string; views: number }> | null>(null);
+  const [fbVideosLoading, setFbVideosLoading] = useState(false);
+  const [selectedFbIds, setSelectedFbIds] = useState<Set<string>>(new Set());
+  const [deletingFb, setDeletingFb] = useState(false);
+  const [confirmFbDelete, setConfirmFbDelete] = useState(false);
   const saveTimer = { current: null as ReturnType<typeof setTimeout> | null };
 
   useEffect(() => {
@@ -144,6 +156,76 @@ export function SmartBot() {
       else next.add(id);
       return next;
     });
+  };
+
+  const loadTtVideos = async () => {
+    setTtVideosLoading(true);
+    setSelectedTtIds(new Set());
+    try {
+      const res = await fetch("/api/tiktok/videos");
+      const data = await res.json() as { videos?: typeof ttVideos; error?: string };
+      if (data.error) toast({ title: "خطأ", description: data.error, variant: "destructive" });
+      else setTtVideos(data.videos ?? []);
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر جلب فيديوهات تيك توك", variant: "destructive" });
+    } finally { setTtVideosLoading(false); }
+  };
+
+  const handleDeleteTt = async () => {
+    if (selectedTtIds.size === 0) return;
+    setDeletingTt(true);
+    setConfirmTtDelete(false);
+    try {
+      const res = await fetch("/api/tiktok/delete-videos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoIds: Array.from(selectedTtIds) }),
+      });
+      const data = await res.json() as { deleted: string[]; failed: Array<{ id: string; error: string }> };
+      if (data.deleted?.length > 0) {
+        toast({ title: "✅ تم الحذف", description: `تم حذف ${data.deleted.length} فيديو بنجاح` });
+        setTtVideos(prev => prev?.filter(v => !data.deleted.includes(v.id)) ?? null);
+        setSelectedTtIds(new Set());
+      }
+      if (data.failed?.length > 0) toast({ title: "⚠️ بعض الحذف فشل", description: `فشل حذف ${data.failed.length} فيديو`, variant: "destructive" });
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر الحذف", variant: "destructive" });
+    } finally { setDeletingTt(false); }
+  };
+
+  const loadFbVideos = async () => {
+    setFbVideosLoading(true);
+    setSelectedFbIds(new Set());
+    try {
+      const res = await fetch("/api/facebook/videos");
+      const data = await res.json() as { videos?: typeof fbVideos; error?: string };
+      if (data.error) toast({ title: "خطأ", description: data.error, variant: "destructive" });
+      else setFbVideos(data.videos ?? []);
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر جلب فيديوهات فيسبوك", variant: "destructive" });
+    } finally { setFbVideosLoading(false); }
+  };
+
+  const handleDeleteFb = async () => {
+    if (selectedFbIds.size === 0) return;
+    setDeletingFb(true);
+    setConfirmFbDelete(false);
+    try {
+      const res = await fetch("/api/facebook/delete-videos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoIds: Array.from(selectedFbIds) }),
+      });
+      const data = await res.json() as { deleted: string[]; failed: Array<{ id: string; error: string }> };
+      if (data.deleted?.length > 0) {
+        toast({ title: "✅ تم الحذف", description: `تم حذف ${data.deleted.length} فيديو بنجاح` });
+        setFbVideos(prev => prev?.filter(v => !data.deleted.includes(v.id)) ?? null);
+        setSelectedFbIds(new Set());
+      }
+      if (data.failed?.length > 0) toast({ title: "⚠️ بعض الحذف فشل", description: `فشل حذف ${data.failed.length} فيديو`, variant: "destructive" });
+    } catch {
+      toast({ title: "خطأ", description: "تعذّر الحذف", variant: "destructive" });
+    } finally { setDeletingFb(false); }
   };
 
   const triggerPost = async () => {
@@ -337,11 +419,30 @@ export function SmartBot() {
                 </select>
               </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-foreground/70 flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5 text-primary" />
+                أسلوب الدعاء
+              </label>
+              <select
+                value={settings.scheduledDuaaStyle || "عشوائي"}
+                onChange={(e) => handleChange({ ...settings, scheduledDuaaStyle: e.target.value })}
+                className="w-full appearance-none bg-black/40 border border-border rounded-xl px-4 py-2.5 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-foreground text-sm font-bold shadow-inner cursor-pointer"
+              >
+                <option value="عشوائي" className="bg-card">🎲 عشوائي — يتغير في كل نشر</option>
+                <option value="تضرع وخشوع" className="bg-card">تضرع وخشوع</option>
+                <option value="شكر وحمد" className="bg-card">شكر وحمد</option>
+                <option value="استغفار" className="bg-card">استغفار</option>
+                <option value="رجاء وأمل" className="bg-card">رجاء وأمل</option>
+                <option value="توكل وثقة" className="bg-card">توكل وثقة</option>
+                <option value="دعاء الصباح" className="bg-card">دعاء الصباح</option>
+                <option value="دعاء المساء" className="bg-card">دعاء المساء</option>
+              </select>
+            </div>
             <div className="p-3 bg-blue-500/5 border border-blue-500/15 rounded-2xl flex items-start gap-2">
               <Zap className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
               <p className="text-xs text-foreground/70 leading-relaxed">
-                يُولِّد البوت دعاء اليوم تلقائياً ويرسله لفيسبوك في الوقت المحدد.
-                إن لم يكن هناك فيديو، يُنشر الدعاء كمنشور نصي.
+                يُولِّد البوت دعاء اليوم تلقائياً وينشره كمنشور نصي على فيسبوك في الوقت المحدد — بدون فيديو.
               </p>
             </div>
             <div className="flex gap-3 flex-wrap">
@@ -707,6 +808,170 @@ export function SmartBot() {
                       >
                         ↗ عرض
                       </a>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── TikTok Video Management ── */}
+      <div className="relative rounded-[2rem] bg-card border border-border shadow-2xl overflow-hidden">
+          <div className="flex items-center gap-4 p-6 sm:p-8 border-b border-border/50">
+            <div className="p-2.5 bg-black/20 rounded-xl border border-border/40 shadow-inner">
+              <Music2 className="w-5 h-5 text-foreground/70" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-xl font-black text-foreground">إدارة فيديوهات تيك توك</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">عرض وحذف فيديوهات حسابك مباشرة من هنا</p>
+            </div>
+            <PremiumButton variant="secondary" onClick={loadTtVideos} isLoading={ttVideosLoading}>
+              <Eye className="w-4 h-4" />
+              تحميل الفيديوهات
+            </PremiumButton>
+          </div>
+
+          {ttVideos !== null && (
+            <div className="p-6 sm:p-8 space-y-4">
+              {ttVideos.length > 0 && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={() => setSelectedTtIds(prev => prev.size === ttVideos.length ? new Set() : new Set(ttVideos.map(v => v.id)))}
+                    className="text-xs font-bold text-muted-foreground hover:text-foreground px-3 py-1.5 border border-border/50 rounded-xl hover:border-border transition-all"
+                  >
+                    {selectedTtIds.size === ttVideos.length ? "إلغاء التحديد" : "تحديد الكل"}
+                  </button>
+                  {selectedTtIds.size > 0 && !confirmTtDelete && (
+                    <button
+                      onClick={() => setConfirmTtDelete(true)}
+                      className="flex items-center gap-2 text-xs font-black text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1.5 rounded-xl hover:bg-red-500/20 transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      حذف المحدد ({selectedTtIds.size})
+                    </button>
+                  )}
+                  {confirmTtDelete && (
+                    <div className="flex items-center gap-2 p-3 bg-red-950/50 border border-red-500/30 rounded-xl">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span className="text-xs font-bold text-red-400">تأكيد حذف {selectedTtIds.size} فيديو؟ لا يمكن التراجع!</span>
+                      <button onClick={handleDeleteTt} disabled={deletingTt} className="flex items-center gap-1.5 text-xs font-black bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-all disabled:opacity-50">
+                        {deletingTt ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                        نعم، احذف
+                      </button>
+                      <button onClick={() => setConfirmTtDelete(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+                    </div>
+                  )}
+                  <span className="text-xs text-muted-foreground/50 mr-auto">{ttVideos.length} فيديو</span>
+                </div>
+              )}
+              {ttVideos.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground/40 text-sm">لا توجد فيديوهات في الحساب</div>
+              ) : (
+                <div className="divide-y divide-border/30 rounded-2xl border border-border/30 overflow-hidden">
+                  {ttVideos.map((v) => {
+                    const isSelected = selectedTtIds.has(v.id);
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => setSelectedTtIds(prev => { const n = new Set(prev); n.has(v.id) ? n.delete(v.id) : n.add(v.id); return n; })}
+                        className={cn("flex items-center gap-3 w-full text-right p-3 hover:bg-white/[0.03] transition-all", isSelected && "bg-red-500/10 border-l-2 border-l-red-500")}
+                      >
+                        <div className={cn("w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-all", isSelected ? "bg-red-500 border-red-500" : "border-border/50")}>
+                          {isSelected && <span className="text-white text-xs font-black">✓</span>}
+                        </div>
+                        {v.cover && <img src={v.cover} alt={v.title} className="w-14 h-14 rounded-lg object-cover border border-border/30 shrink-0" />}
+                        <div className="flex-1 min-w-0 text-right">
+                          <p className="text-sm font-bold text-foreground line-clamp-1">{v.title}</p>
+                          <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
+                            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{v.views.toLocaleString("en-US")}</span>
+                            {v.createdAt && <span>{new Date(v.createdAt).toLocaleDateString("ar-EG")}</span>}
+                          </div>
+                        </div>
+                        <a href={v.shareUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[11px] text-foreground/50 hover:text-foreground border border-border/30 px-2 py-1 rounded-lg shrink-0">↗ عرض</a>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+      </div>
+
+      {/* ── Facebook Video Management ── */}
+      <div className="relative rounded-[2rem] bg-card border border-blue-500/20 shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-4 p-6 sm:p-8 border-b border-border/50">
+          <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20 shadow-inner">
+            <Facebook className="w-5 h-5 text-blue-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-black text-foreground">إدارة فيديوهات فيسبوك</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">عرض وحذف فيديوهات صفحتك مباشرة من هنا</p>
+          </div>
+          <PremiumButton variant="secondary" onClick={loadFbVideos} isLoading={fbVideosLoading}>
+            <Eye className="w-4 h-4" />
+            تحميل الفيديوهات
+          </PremiumButton>
+        </div>
+
+        {fbVideos !== null && (
+          <div className="p-6 sm:p-8 space-y-4">
+            {fbVideos.length > 0 && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={() => setSelectedFbIds(prev => prev.size === fbVideos.length ? new Set() : new Set(fbVideos.map(v => v.id)))}
+                  className="text-xs font-bold text-muted-foreground hover:text-foreground px-3 py-1.5 border border-border/50 rounded-xl hover:border-border transition-all"
+                >
+                  {selectedFbIds.size === fbVideos.length ? "إلغاء التحديد" : "تحديد الكل"}
+                </button>
+                {selectedFbIds.size > 0 && !confirmFbDelete && (
+                  <button
+                    onClick={() => setConfirmFbDelete(true)}
+                    className="flex items-center gap-2 text-xs font-black text-red-400 bg-red-500/10 border border-red-500/30 px-3 py-1.5 rounded-xl hover:bg-red-500/20 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    حذف المحدد ({selectedFbIds.size})
+                  </button>
+                )}
+                {confirmFbDelete && (
+                  <div className="flex items-center gap-2 p-3 bg-red-950/50 border border-red-500/30 rounded-xl">
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span className="text-xs font-bold text-red-400">تأكيد حذف {selectedFbIds.size} فيديو؟ لا يمكن التراجع!</span>
+                    <button onClick={handleDeleteFb} disabled={deletingFb} className="flex items-center gap-1.5 text-xs font-black bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600 transition-all disabled:opacity-50">
+                      {deletingFb ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      نعم، احذف
+                    </button>
+                    <button onClick={() => setConfirmFbDelete(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+                  </div>
+                )}
+                <span className="text-xs text-muted-foreground/50 mr-auto">{fbVideos.length} فيديو</span>
+              </div>
+            )}
+            {fbVideos.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground/40 text-sm">لا توجد فيديوهات في الصفحة</div>
+            ) : (
+              <div className="divide-y divide-border/30 rounded-2xl border border-border/30 overflow-hidden">
+                {fbVideos.map((v) => {
+                  const isSelected = selectedFbIds.has(v.id);
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => setSelectedFbIds(prev => { const n = new Set(prev); n.has(v.id) ? n.delete(v.id) : n.add(v.id); return n; })}
+                      className={cn("flex items-center gap-3 w-full text-right p-3 hover:bg-white/[0.03] transition-all", isSelected && "bg-red-500/10 border-l-2 border-l-red-500")}
+                    >
+                      <div className={cn("w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-all", isSelected ? "bg-red-500 border-red-500" : "border-border/50")}>
+                        {isSelected && <span className="text-white text-xs font-black">✓</span>}
+                      </div>
+                      {v.thumbnail && <img src={v.thumbnail} alt={v.title} className="w-20 h-12 rounded-lg object-cover border border-border/30 shrink-0" />}
+                      <div className="flex-1 min-w-0 text-right">
+                        <p className="text-sm font-bold text-foreground line-clamp-1">{v.title}</p>
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{v.views.toLocaleString("en-US")}</span>
+                          {v.createdAt && <span>{new Date(v.createdAt).toLocaleDateString("ar-EG")}</span>}
+                        </div>
+                      </div>
+                      <a href={`https://www.facebook.com/video/${v.id}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[11px] text-blue-400 hover:text-blue-300 border border-blue-500/20 px-2 py-1 rounded-lg shrink-0">↗ عرض</a>
                     </button>
                   );
                 })}

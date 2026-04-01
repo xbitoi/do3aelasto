@@ -27,6 +27,10 @@ import {
   fetchBotAnalytics,
   listYouTubeChannelVideos,
   deleteYouTubeVideos,
+  listTikTokVideos,
+  deleteTikTokVideos,
+  listFacebookVideos,
+  deleteFacebookVideos,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -230,6 +234,54 @@ router.post("/youtube/delete-videos", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ── TikTok video management ────────────────────────────────────────────────
+
+router.get("/tiktok/videos", async (_req, res) => {
+  try {
+    const result = await listTikTokVideos();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/tiktok/delete-videos", async (req, res) => {
+  const { videoIds } = req.body as { videoIds: string[] };
+  if (!Array.isArray(videoIds) || videoIds.length === 0) {
+    return res.status(400).json({ error: "يرجى تمرير قائمة معرّفات الفيديوهات" });
+  }
+  try {
+    const result = await deleteTikTokVideos(videoIds);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── Facebook video management ──────────────────────────────────────────────
+
+router.get("/facebook/videos", async (_req, res) => {
+  try {
+    const result = await listFacebookVideos();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/facebook/delete-videos", async (req, res) => {
+  const { videoIds } = req.body as { videoIds: string[] };
+  if (!Array.isArray(videoIds) || videoIds.length === 0) {
+    return res.status(400).json({ error: "يرجى تمرير قائمة معرّفات الفيديوهات" });
+  }
+  try {
+    const result = await deleteFacebookVideos(videoIds);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

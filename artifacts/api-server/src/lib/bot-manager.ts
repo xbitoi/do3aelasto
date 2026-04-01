@@ -2403,10 +2403,12 @@ async function handleVideo(msg: TelegramBot.Message, settings: AppSettings) {
       { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
     );
 
+    addLog("📦 تحضير الفيديو للإرسال...", "processing");
+    const sendPath = await ensureUnderTelegramLimit(outputPath, tmpDir);
     addLog("📤 إرسال الفيديو النهائي...", "processing");
     await botInstance!.sendVideo(
       chatId,
-      fs.createReadStream(outputPath),
+      fs.createReadStream(sendPath),
       {
         caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشر هذا الفيديو على منصات التواصل`,
         parse_mode: "Markdown",
@@ -2474,6 +2476,46 @@ async function addVideoToSession(msg: TelegramBot.Message, session: ChatSession)
     `✅ *استُقبل الفيديو رقم ${num}*\n\n📋 المجمَّع: ${nums}\n\nأرسل المزيد أو أرسل *ابدا* للمعالجة`,
     { parse_mode: "Markdown" }
   );
+}
+
+// ── Auto-compress video if it exceeds Telegram's 50MB bot upload limit ────────
+const TELEGRAM_MAX_BYTES = 49 * 1024 * 1024; // 49 MB safety margin
+
+async function ensureUnderTelegramLimit(filePath: string, tmpDir: string): Promise<string> {
+  const stat = fs.statSync(filePath);
+  if (stat.size <= TELEGRAM_MAX_BYTES) return filePath;
+
+  const duration = await getVideoDuration(filePath);
+  if (duration <= 0) return filePath; // fallback — let Telegram error naturally
+
+  // Target bitrate (kbps) = (targetBytes * 8) / (duration_s * 1000)
+  const targetBitrateKbps = Math.floor((TELEGRAM_MAX_BYTES * 8) / (duration * 1000));
+  const audioBitrateKbps = 96;
+  const videoBitrateKbps = Math.max(300, targetBitrateKbps - audioBitrateKbps);
+
+  const compressedPath = path.join(tmpDir, `compressed_${Date.now()}.mp4`);
+  addLog(`📦 ضغط الفيديو: ${(stat.size / 1024 / 1024).toFixed(1)}MB → هدف ${videoBitrateKbps}kbps`, "info");
+
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg(filePath)
+      .outputOptions([
+        `-b:v ${videoBitrateKbps}k`,
+        `-maxrate ${videoBitrateKbps * 1.5}k`,
+        `-bufsize ${videoBitrateKbps * 2}k`,
+        `-b:a ${audioBitrateKbps}k`,
+        "-c:v libx264",
+        "-c:a aac",
+        "-preset fast",
+        "-movflags +faststart",
+      ])
+      .save(compressedPath)
+      .on("end", () => resolve())
+      .on("error", (e: Error) => reject(e));
+  });
+
+  const newSize = fs.statSync(compressedPath).size;
+  addLog(`✅ الضغط ناجح: ${(newSize / 1024 / 1024).toFixed(1)}MB`, "success");
+  return compressedPath;
 }
 
 async function handleMultiVideo(chatId: number, session: ChatSession, settings: AppSettings) {
@@ -2548,7 +2590,8 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       saveLastVideo(lastProcessedPath, duaaText);
-      await botInstance!.sendVideo(chatId, fs.createReadStream(lastProcessedPath), {
+      const sendPath1 = await ensureUnderTelegramLimit(lastProcessedPath, tmpDir);
+      await botInstance!.sendVideo(chatId, fs.createReadStream(sendPath1), {
         caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشره على منصات التواصل`,
         parse_mode: "Markdown",
       });
@@ -2596,11 +2639,12 @@ async function handleMultiVideo(chatId: number, session: ChatSession, settings: 
 
       setOpStage(chatId, "إرسال الفيديو النهائي...");
       await botInstance!.editMessageText(
-        "⏳ *جاري المعالجة...*\n\n📤 إرسال الفيديو النهائي...",
+        "⏳ *جاري المعالجة...*\n\n📦 تحضير الفيديو للإرسال...",
         { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: "Markdown" }
       );
       saveLastVideo(finalPath, duaaText);
-      await botInstance!.sendVideo(chatId, fs.createReadStream(finalPath), {
+      const sendPath2 = await ensureUnderTelegramLimit(finalPath, tmpDir);
+      await botInstance!.sendVideo(chatId, fs.createReadStream(sendPath2), {
         caption: `🤲 *${duaaText}*\n\n━━━━━━━━━━\n🤖 _توليد بالذكاء الاصطناعي Gemini_\n\n💡 أرسل *نشر* لنشره على منصات التواصل`,
         parse_mode: "Markdown",
       });

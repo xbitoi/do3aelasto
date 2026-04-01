@@ -23,7 +23,7 @@
   "youtubeToken": "1//04xxtDtd1upIYCgYIARAAGAQSNwF-L9Irr2cDyyXVThv4MBc1YUQ9bKlMpEmr3DwNn1BGqrejbgHsHLUmdhirfXQwVHKj6cspWGg",
   "youtubeClientId": "1090215758795-5ii4t9gkdkl3inv8hvda248pv53r00nn.apps.googleusercontent.com",
   "youtubeClientSecret": "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",
-  "facebookToken": "EAAbRUXJkuu4BRNJ9pBaWQ9e7gupcp9qYvuX8WFkzAJYpUPIULkdvASS9dH4QPvWdJ9YxycNqZAIbrm9KoEmniBMZCQePgYoPMsf5SZBTP3ja95wtaSJhGHXGyhbHkNDOPlSA5vSEsAwypRT15bZAZBN3rwHGQHJcvmYcVYtJZCk3IJbfdi0XFVPG1LJ18ZBUZC6nW2pymKMIGnAsGBP1zzykKH0dSEZBZB8brtJUCZAti8JjW0ZD",
+  "facebookToken": "EAAbRUXJkuu4BRHPMy7ToJ25i0y15EfSEc2O6t5eimFS9uZCKjTY5AGQOETfQynSgu9krHVJxNwk0lOfOjbkuwAReNjk92lTRK94hnxiFeXQwtWvVLkAt1RZAsm5SOZB4lZBGsTxFEDg1W1dXnjurZCqGxo0zbVo7nPz15FjiJJw3TBx4LgEywibdnIYyCUgZCdSbK4moNj",
   "tiktokToken": "",
   "publishDescription": "بسم الله نبدا",
   "aspectRatio": "9:16",
@@ -36,6 +36,6 @@
   "autoReportChatId": "1153411920",
   "weeklyReportDay": 5,
   "smartBotEnabled": true,
-  "managedChannelIds": "",
+  "managedChannelIds": "UCmBhsaxoXMNlXbDRivDzMiw, 1008532579015236",
   "smartBotAdminChatId": "1153411920"
 }

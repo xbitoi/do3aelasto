@@ -3926,7 +3926,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
         bar_img = Image.new('RGBA', (W, bar_total_h), (0, 0, 0, 0))
         bar_draw = ImageDraw.Draw(bar_img)
         pad = blur_r * 2
-        bar_draw.rectangle([0, pad, W, bar_total_h - pad], fill=(BG_RGB[0], BG_RGB[1], BG_RGB[2], bar_alpha))
+        bar_draw.rectangle([0, pad, W, bar_total_h - pad], fill=(0, 0, 0, bar_alpha))
         bar_img = bar_img.filter(ImageFilter.GaussianBlur(blur_r))
         bar_y = y_center - bar_total_h // 2
         img.paste(bar_img, (0, bar_y), bar_img)
@@ -3955,6 +3955,15 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
                 rgb = word_colors[g_idx]
                 draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
             elif g_idx == active_idx:
+                if show_background:
+                    hl_pad_x = max(8, int(font_size * 0.18))
+                    hl_pad_y = max(4, int(font_size * 0.1))
+                    hl_alpha = min(255, int(bg_opacity_pct * 255 / 100))
+                    hl_img = Image.new('RGBA', (ww + hl_pad_x * 2 + 20, LINE_H + hl_pad_y * 2 + 20), (0, 0, 0, 0))
+                    hl_draw = ImageDraw.Draw(hl_img)
+                    hl_draw.rounded_rectangle([10, 10, ww + hl_pad_x * 2 + 10, LINE_H + hl_pad_y * 2 + 10], radius=max(6, int(font_size * 0.14)), fill=(BG_RGB[0], BG_RGB[1], BG_RGB[2], hl_alpha))
+                    hl_img = hl_img.filter(ImageFilter.GaussianBlur(max(2, int(font_size * 0.06))))
+                    img.paste(hl_img, (x - hl_pad_x - 10, y_top - hl_pad_y - 10), hl_img)
                 if evap_phase > 0:
                     _draw_entry(img, word, x, y_top, ACTIVE_RGB, base_op, stroke, evap_phase)
                 else:

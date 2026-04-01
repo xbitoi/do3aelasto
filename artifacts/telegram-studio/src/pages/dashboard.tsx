@@ -864,6 +864,12 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
 
   const fontFamily = FONT_FAMILY_MAP[settings.font] ?? "'Cairo', sans-serif";
 
+  const shadowColor = settings.shadowColor ?? "#000000";
+  const ps1 = Math.max(1, Math.round(9 * scale));
+  const ps2 = Math.max(2, Math.round(18 * scale));
+  const ps3 = Math.max(3, Math.round(36 * scale));
+  const previewTextShadow = `${ps1}px ${ps1}px ${ps1 * 3}px ${shadowColor}, ${ps2}px ${ps2}px ${ps2 * 3}px ${shadowColor}cc, ${ps3}px ${ps3}px ${ps3 * 3}px ${shadowColor}88`;
+
   return (
     <PremiumCard title="معاينة — ريلز فيسبوك (9:16)" icon={LayoutTemplate}>
       <div className="flex flex-col items-center gap-5">
@@ -879,11 +885,13 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
 
           {settings.showBackground && (
             <div
-              className="absolute inset-x-0 h-16 bg-black"
+              className="absolute inset-x-0"
               style={{
-                top: `calc(${yPercent}% - 32px)`,
-                opacity: (settings.bgOpacity ?? 40) / 100,
-                filter: "blur(8px)",
+                top: `calc(${yPercent}% - 36px)`,
+                height: "72px",
+                background: `rgba(0,0,0,${(settings.bgOpacity ?? 40) / 100})`,
+                boxShadow: `0 0 ${Math.round(24 * scale)}px ${Math.round(24 * scale)}px rgba(0,0,0,${(settings.bgOpacity ?? 40) / 100})`,
+                filter: `blur(${Math.max(2, Math.round(8 * scale))}px)`,
               }}
             />
           )}
@@ -900,7 +908,7 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
                 lineHeight: settings.lineHeight,
                 color: settings.textColor,
                 WebkitTextStroke: previewStroke > 0 ? `${previewStroke}px rgba(0,0,0,0.95)` : undefined,
-                textShadow: `9px 9px 24px ${settings.shadowColor ?? '#000000'}, 18px 18px 54px ${settings.shadowColor ?? '#000000'}cc, 36px 36px 84px ${settings.shadowColor ?? '#000000'}88`,
+                textShadow: previewTextShadow,
                 textAlign: "center",
                 padding: "0 8px",
                 maxWidth: "100%",

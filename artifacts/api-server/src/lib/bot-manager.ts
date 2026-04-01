@@ -536,11 +536,10 @@ async function schedulerTick() {
     try {
       const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore, settings.scheduledDuaaStyle);
       if (settings.facebookToken) {
-        const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
         const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
+          body: JSON.stringify({ message: duaa.slice(0, 2000), access_token: settings.facebookToken }),
         });
         const fbData = await fbRes.json() as any;
         if (fbRes.ok && fbData.id) {
@@ -678,14 +677,13 @@ export async function forceTriggerScheduledPost(): Promise<{ success: boolean; m
   }
   try {
     addLog("🔘 تشغيل يدوي للنشر المجدوَل (نص دعاء)...", "info");
-    const { duaa, title, caption } = await generateDailyDuaaContent(geminiKeyStore, settings.scheduledDuaaStyle);
+    const { duaa, title, caption: _caption } = await generateDailyDuaaContent(geminiKeyStore, settings.scheduledDuaaStyle);
 
-    // Always post text-only — no video upload
-    const textOnlyCaption = `🤲 ${title}\n\n${caption}`;
+    // Post prayer text only — no description, hashtags, or CTA
     const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/feed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: textOnlyCaption.slice(0, 2000), access_token: settings.facebookToken }),
+      body: JSON.stringify({ message: duaa.slice(0, 2000), access_token: settings.facebookToken }),
     });
     const fbData = await fbRes.json() as any;
 

@@ -900,7 +900,7 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
                 lineHeight: settings.lineHeight,
                 color: settings.textColor,
                 WebkitTextStroke: previewStroke > 0 ? `${previewStroke}px rgba(0,0,0,0.95)` : undefined,
-                textShadow: `3px 3px 8px ${settings.shadowColor ?? '#000000'}, 6px 6px 18px ${settings.shadowColor ?? '#000000'}cc, 12px 12px 28px ${settings.shadowColor ?? '#000000'}88`,
+                textShadow: `9px 9px 24px ${settings.shadowColor ?? '#000000'}, 18px 18px 54px ${settings.shadowColor ?? '#000000'}cc, 36px 36px 84px ${settings.shadowColor ?? '#000000'}88`,
                 textAlign: "center",
                 padding: "0 8px",
                 maxWidth: "100%",
@@ -910,10 +910,12 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
               <span
                 style={{
                   color: settings.activeColor,
-                  backgroundColor: "rgba(0,0,0,0.45)",
+                  backgroundColor: (settings.bgColorMode ?? "fixed") === "random"
+                    ? `rgba(59,130,246,${(settings.bgOpacity ?? 40) / 100})`
+                    : `${settings.bgColor ?? "#3B82F6"}${Math.round((settings.bgOpacity ?? 40) * 2.55).toString(16).padStart(2, "0")}`,
                   padding: "0 4px",
                   borderRadius: "6px",
-                  boxShadow: `0 0 12px ${settings.activeColor}60`,
+                  boxShadow: `0 0 36px ${settings.activeColor}99, 0 0 18px ${settings.bgColor ?? "#3B82F6"}88`,
                   borderBottom: `1px solid ${settings.activeColor}80`,
                 }}
               >

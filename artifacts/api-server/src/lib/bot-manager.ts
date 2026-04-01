@@ -3617,6 +3617,11 @@ async function generateAnimatedTextFrames(params: {
   strokeWidth: number;
   yRatio: number;
   activeColor: string;
+  textColor: string;
+  shadowColor: string;
+  shadowColorMode: string;
+  bgColor: string;
+  bgColorMode: string;
   totalDuration: number;
   outputDir: string;
   showBackground: boolean;
@@ -3649,6 +3654,11 @@ words = p['words']
 word_timings = p['wordTimings']
 total_duration = p['totalDuration']
 active_hex = p['activeColor']
+text_hex = p.get('textColor', 'FFFFFF').lstrip('#')
+shadow_hex = p.get('shadowColor', '000000').lstrip('#')
+shadow_mode = p.get('shadowColorMode', 'fixed')
+bg_hex = p.get('bgColor', '3B82F6').lstrip('#')
+bg_mode = p.get('bgColorMode', 'fixed')
 show_background = p.get('showBackground', True)
 bg_opacity_pct = p.get('bgOpacity', 40)
 font_path = p['fontPath']
@@ -3663,6 +3673,7 @@ def hex_to_rgb(h):
     return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
 
 ACTIVE_RGB = hex_to_rgb(active_hex)
+TEXT_RGB = hex_to_rgb(text_hex) if len(text_hex) == 6 else (255, 255, 255)
 
 PALETTE = [
     (255, 215,   0),
@@ -3674,6 +3685,8 @@ PALETTE = [
     ( 34, 211, 238),
     (251, 146,  60),
 ]
+SHADOW_RGB = hex_to_rgb(shadow_hex) if (shadow_mode != 'random' and len(shadow_hex) == 6) else _random.choice(PALETTE)
+BG_RGB = hex_to_rgb(bg_hex) if (bg_mode != 'random' and len(bg_hex) == 6) else _random.choice(PALETTE)
 EVAP_STEPS = 7
 EVAP_Y_DRIFT = 22
 
@@ -3745,19 +3758,26 @@ def draw_word_at(draw, word, x, y, rgb, opacity, stroke_w):
     if opacity <= 0: return
     opacity = max(0, min(255, int(opacity)))
     r = get_display(arabic_reshaper.reshape(word))
-    shadow_a = int(160 * opacity / 255)
+    sha1 = int(200 * opacity / 255)
+    sha2 = int(140 * opacity / 255)
+    sha3 = int(80 * opacity / 255)
     stroke_a = int(210 * opacity / 255)
-    draw.text((x+2, y+2), r, font=font, fill=(0,0,0,shadow_a))
+    draw.text((x+6, y+6), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha1))
+    draw.text((x+12, y+12), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha2))
+    draw.text((x+18, y+18), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], sha3))
     if stroke_w > 0:
         for dx in range(-stroke_w, stroke_w+1):
             for dy in range(-stroke_w, stroke_w+1):
                 if abs(dx)+abs(dy) <= stroke_w:
-                    draw.text((x+dx, y+dy), r, font=font, fill=(0,0,0,stroke_a))
+                    draw.text((x+dx, y+dy), r, font=font, fill=(SHADOW_RGB[0], SHADOW_RGB[1], SHADOW_RGB[2], stroke_a))
     draw.text((x, y), r, font=font, fill=(rgb[0], rgb[1], rgb[2], opacity))
 
 def _draw_entry(img, word, x, y, rgb, base_op, stroke_w, phase):
     """Draw the newly-active word with the chosen entrance animation."""
     eff = word_effect
+    if eff == 'none':
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, base_op, stroke_w)
+        return
     if eff == 'fade_smooth':
         op = int(base_op * min(1.0, phase * 1.8))
         draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, op, stroke_w)
@@ -3906,7 +3926,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
         bar_img = Image.new('RGBA', (W, bar_total_h), (0, 0, 0, 0))
         bar_draw = ImageDraw.Draw(bar_img)
         pad = blur_r * 2
-        bar_draw.rectangle([0, pad, W, bar_total_h - pad], fill=(0, 0, 0, bar_alpha))
+        bar_draw.rectangle([0, pad, W, bar_total_h - pad], fill=(BG_RGB[0], BG_RGB[1], BG_RGB[2], bar_alpha))
         bar_img = bar_img.filter(ImageFilter.GaussianBlur(blur_r))
         bar_y = y_center - bar_total_h // 2
         img.paste(bar_img, (0, bar_y), bar_img)
@@ -3942,7 +3962,7 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
             elif g_idx < active_idx and g_idx != evap_word_idx:
                 pass
             else:
-                draw_word_at(draw, word, x, y_top, (255,255,255), int(base_op * 0.70), stroke)
+                draw_word_at(draw, word, x, y_top, TEXT_RGB, int(base_op * 0.70), stroke)
             x -= WORD_GAP
 
     return img
@@ -4043,6 +4063,11 @@ async function processVideoWithText(
     strokeWidth,
     yRatio,
     activeColor,
+    textColor: settings.textColor || "#FFFFFF",
+    shadowColor: settings.shadowColor || "#000000",
+    shadowColorMode: settings.shadowColorMode || "fixed",
+    bgColor: settings.bgColor || "#3B82F6",
+    bgColorMode: settings.bgColorMode || "fixed",
     totalDuration: videoDuration,
     outputDir: framesDir,
     showBackground: settings.showBackground ?? true,

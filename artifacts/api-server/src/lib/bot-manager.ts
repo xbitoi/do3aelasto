@@ -3613,6 +3613,7 @@ async function generateAnimatedTextFrames(params: {
   outputDir: string;
   showBackground: boolean;
   bgOpacity: number;
+  wordEffect: string;
 }): Promise<string> {
   const scriptPath = path.join(os.tmpdir(), `anim_arabic_${Date.now()}.py`);
   const paramsPath = path.join(os.tmpdir(), `anim_params_${Date.now()}.json`);
@@ -3621,8 +3622,9 @@ async function generateAnimatedTextFrames(params: {
   fs.writeFileSync(paramsPath, JSON.stringify(params), "utf8");
 
   const script = `
-import json, sys, os, math
+import json, sys, os, math, random as _random
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -3643,6 +3645,11 @@ show_background = p.get('showBackground', True)
 bg_opacity_pct = p.get('bgOpacity', 40)
 font_path = p['fontPath']
 concat_list_path = os.path.join(output_dir, 'frames.txt')
+
+WORD_EFFECTS_LIST = ['fade_smooth','zoom_pop','bounce_spring','slide_up','slide_down','swing_right','glow_pulse','reveal_rtl','typewriter','wave_cascade','matrix_rain','shimmer','spin_in','scramble']
+_raw_effect = p.get('wordEffect', 'random')
+word_effect = _random.choice(WORD_EFFECTS_LIST) if (_raw_effect == 'random' or not _raw_effect) else _raw_effect
+print(f"[word_effect] using: {word_effect}", flush=True)
 
 def hex_to_rgb(h):
     return (int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
@@ -3740,6 +3747,142 @@ def draw_word_at(draw, word, x, y, rgb, opacity, stroke_w):
                     draw.text((x+dx, y+dy), r, font=font, fill=(0,0,0,stroke_a))
     draw.text((x, y), r, font=font, fill=(rgb[0], rgb[1], rgb[2], opacity))
 
+def _draw_entry(img, word, x, y, rgb, base_op, stroke_w, phase):
+    """Draw the newly-active word with the chosen entrance animation."""
+    eff = word_effect
+    if eff == 'fade_smooth':
+        op = int(base_op * min(1.0, phase * 1.8))
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, op, stroke_w)
+
+    elif eff == 'slide_up':
+        drift = int(font_size * 1.2 * max(0.0, 1.0 - phase * 1.8))
+        op = int(base_op * min(1.0, phase * 1.8))
+        draw_word_at(ImageDraw.Draw(img), word, x, y + drift, rgb, op, stroke_w)
+
+    elif eff == 'slide_down':
+        drift = int(font_size * 1.2 * max(0.0, 1.0 - phase * 1.8))
+        op = int(base_op * min(1.0, phase * 1.8))
+        draw_word_at(ImageDraw.Draw(img), word, x, y - drift, rgb, op, stroke_w)
+
+    elif eff in ('zoom_pop', 'bounce_spring'):
+        ww_val = word_w(word)
+        wh_val = LINE_H
+        pad = max(12, int(font_size * 0.6))
+        tmp = Image.new('RGBA', (ww_val + pad*2, wh_val + pad*2), (0,0,0,0))
+        draw_word_at(ImageDraw.Draw(tmp), word, pad, pad, rgb, base_op, stroke_w)
+        if eff == 'zoom_pop':
+            if phase < 0.55:
+                scale = 0.2 + 1.2 * (phase / 0.55)
+            else:
+                t2 = (phase - 0.55) / 0.45
+                scale = 1.4 - 0.4 * t2
+        else:
+            if phase < 0.12:
+                scale = 0.15 + 0.85 * (phase / 0.12)
+            else:
+                scale = 1.0 + 0.45 * math.sin((phase - 0.12) * math.pi * 2.8) * math.exp(-(phase - 0.12) * 5)
+        scale = max(0.05, min(3.0, scale))
+        nw = max(1, int(tmp.width * scale))
+        nh = max(1, int(tmp.height * scale))
+        scaled = tmp.resize((nw, nh), Image.LANCZOS)
+        px = x - pad + (ww_val + pad*2 - nw) // 2
+        py = y - pad + (wh_val + pad*2 - nh) // 2
+        img.paste(scaled, (px, py), scaled)
+
+    elif eff == 'glow_pulse':
+        pulse = 0.55 + 0.45 * abs(math.sin(phase * math.pi * 4.5))
+        op = int(base_op * min(1.0, phase * 1.8) * pulse)
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, op, stroke_w)
+
+    elif eff == 'reveal_rtl':
+        ww_val = word_w(word)
+        wh_val = LINE_H + int(font_size * 0.45)
+        pad = 8
+        tmp = Image.new('RGBA', (ww_val + pad*2, wh_val + pad*2), (0,0,0,0))
+        draw_word_at(ImageDraw.Draw(tmp), word, pad, pad, rgb, base_op, stroke_w)
+        reveal_w = int(tmp.width * min(1.0, phase * 1.4))
+        if reveal_w > 0:
+            mask = Image.new('L', tmp.size, 0)
+            ImageDraw.Draw(mask).rectangle([0, 0, reveal_w, tmp.height], fill=255)
+            out = Image.composite(tmp, Image.new('RGBA', tmp.size, (0,0,0,0)), mask)
+            img.paste(out, (x - pad, y - pad), out)
+
+    elif eff == 'swing_right':
+        drift = int(font_size * 1.4 * max(0.0, 1.0 - phase * 1.6))
+        op = int(base_op * min(1.0, phase * 1.6))
+        draw_word_at(ImageDraw.Draw(img), word, x - drift, y, rgb, op, stroke_w)
+
+    elif eff == 'typewriter':
+        ww_val = word_w(word)
+        wh_val = LINE_H + int(font_size * 0.45)
+        pad = 6
+        tmp = Image.new('RGBA', (ww_val + pad*2, wh_val + pad*2), (0,0,0,0))
+        draw_word_at(ImageDraw.Draw(tmp), word, pad, pad, rgb, base_op, stroke_w)
+        reveal_w = int(tmp.width * min(1.0, phase * 1.3))
+        if reveal_w > 0:
+            mask = Image.new('L', tmp.size, 0)
+            ImageDraw.Draw(mask).rectangle([tmp.width - reveal_w, 0, tmp.width, tmp.height], fill=255)
+            out = Image.composite(tmp, Image.new('RGBA', tmp.size, (0,0,0,0)), mask)
+            img.paste(out, (x - pad, y - pad), out)
+
+    elif eff == 'wave_cascade':
+        wave = 0.5 + 0.5 * math.sin(phase * math.pi * 3 - math.pi * 0.5)
+        scale = 0.4 + 0.8 * wave
+        op = int(base_op * min(1.0, phase * 2.0))
+        ww_val = word_w(word)
+        wh_val = LINE_H
+        pad = max(12, int(font_size * 0.6))
+        tmp = Image.new('RGBA', (ww_val + pad*2, wh_val + pad*2), (0,0,0,0))
+        draw_word_at(ImageDraw.Draw(tmp), word, pad, pad, rgb, op, stroke_w)
+        scale = max(0.05, min(2.0, scale))
+        nw = max(1, int(tmp.width * scale))
+        nh = max(1, int(tmp.height * scale))
+        scaled = tmp.resize((nw, nh), Image.LANCZOS)
+        px = x - pad + (ww_val + pad*2 - nw) // 2
+        py = y - pad + (wh_val + pad*2 - nh) // 2
+        img.paste(scaled, (px, py), scaled)
+
+    elif eff == 'matrix_rain':
+        drift = int(font_size * 1.5 * max(0.0, 1.0 - phase * 1.6))
+        op = int(base_op * min(1.0, phase * 1.6))
+        green_shift = max(0, int(80 * (1.0 - phase)))
+        tinted_rgb = (max(0, rgb[0] - green_shift), min(255, rgb[1] + green_shift // 2), max(0, rgb[2] - green_shift))
+        draw_word_at(ImageDraw.Draw(img), word, x, y - drift, tinted_rgb, op, stroke_w)
+
+    elif eff == 'shimmer':
+        brightness = 0.5 + 0.5 * abs(math.sin(phase * math.pi * 3))
+        op = int(base_op * min(1.0, phase * 1.8) * brightness)
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, op, stroke_w)
+
+    elif eff == 'spin_in':
+        ww_val = word_w(word)
+        wh_val = LINE_H
+        pad = max(12, int(font_size * 0.6))
+        tmp = Image.new('RGBA', (ww_val + pad*2, wh_val + pad*2), (0,0,0,0))
+        op = int(base_op * min(1.0, phase * 1.5))
+        draw_word_at(ImageDraw.Draw(tmp), word, pad, pad, rgb, op, stroke_w)
+        spin_scale = 0.1 + 0.9 * min(1.0, phase * 1.5)
+        spin_scale = max(0.05, min(1.2, spin_scale))
+        nw = max(1, int(tmp.width * spin_scale))
+        nh = max(1, int(tmp.height * spin_scale))
+        scaled = tmp.resize((nw, nh), Image.LANCZOS)
+        if phase < 0.5:
+            angle = (1.0 - phase * 2) * 25
+            try: scaled = scaled.rotate(angle, expand=False)
+            except: pass
+        px = x - pad + (ww_val + pad*2 - scaled.width) // 2
+        py = y - pad + (wh_val + pad*2 - scaled.height) // 2
+        img.paste(scaled, (px, py), scaled)
+
+    elif eff == 'scramble':
+        flicker = _random.random() if phase < 0.7 else 1.0
+        op = int(base_op * min(1.0, (phase * 1.4 + flicker * 0.3) * 0.85))
+        op = min(base_op, max(0, op))
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, op, stroke_w)
+
+    else:
+        draw_word_at(ImageDraw.Draw(img), word, x, y, rgb, base_op, stroke_w)
+
 def render_frame(active_idx, evap_word_idx, evap_phase):
     img = Image.new('RGBA', (W, H), (0,0,0,0))
     draw = ImageDraw.Draw(img)
@@ -3784,7 +3927,10 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
                 rgb = word_colors[g_idx]
                 draw_word_at(draw, word, x, y_draw, rgb, op, stroke)
             elif g_idx == active_idx:
-                draw_word_at(draw, word, x, y_top, ACTIVE_RGB, base_op, stroke)
+                if evap_phase > 0:
+                    _draw_entry(img, word, x, y_top, ACTIVE_RGB, base_op, stroke, evap_phase)
+                else:
+                    draw_word_at(ImageDraw.Draw(img), word, x, y_top, ACTIVE_RGB, base_op, stroke)
             elif g_idx < active_idx and g_idx != evap_word_idx:
                 pass
             else:
@@ -3814,17 +3960,14 @@ for i in range(len(words)):
     next_start = word_timings[i+1]['start'] if i+1 < len(words) else total_duration
     word_dur = max(0.05, next_start - timing['start'])
 
-    if i == 0:
-        img = render_frame(i, -1, 0.0)
-        p = save_frame(img, f'w{i}')
-        frame_entries.append((p, word_dur))
-    else:
-        sub_dur = word_dur / EVAP_STEPS
-        for step in range(EVAP_STEPS):
-            phase = step / (EVAP_STEPS - 1)
-            img = render_frame(i, i-1, phase)
-            p = save_frame(img, f'w{i}_ev{step}')
-            frame_entries.append((p, sub_dur))
+    anim_steps = EVAP_STEPS
+    sub_dur = word_dur / anim_steps
+    evap_idx = i - 1 if i > 0 else -1
+    for step in range(anim_steps):
+        phase = step / max(1, anim_steps - 1)
+        img = render_frame(i, evap_idx, phase)
+        p = save_frame(img, f'w{i}_s{step}')
+        frame_entries.append((p, sub_dur))
 
 with open(concat_list_path, 'w', encoding='utf-8') as f:
     for path_str, dur in frame_entries:
@@ -3896,6 +4039,7 @@ async function processVideoWithText(
     outputDir: framesDir,
     showBackground: settings.showBackground ?? true,
     bgOpacity: settings.bgOpacity ?? 40,
+    wordEffect: settings.wordEffect || "random",
   });
   addLog(`✅ تم توليد إطارات التبخر بنجاح`, "success");
 

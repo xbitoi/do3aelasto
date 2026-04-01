@@ -3611,6 +3611,8 @@ async function generateAnimatedTextFrames(params: {
   activeColor: string;
   totalDuration: number;
   outputDir: string;
+  showBackground: boolean;
+  bgOpacity: number;
 }): Promise<string> {
   const scriptPath = path.join(os.tmpdir(), `anim_arabic_${Date.now()}.py`);
   const paramsPath = path.join(os.tmpdir(), `anim_params_${Date.now()}.json`);
@@ -3620,7 +3622,7 @@ async function generateAnimatedTextFrames(params: {
 
   const script = `
 import json, sys, os, math
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -3637,6 +3639,8 @@ words = p['words']
 word_timings = p['wordTimings']
 total_duration = p['totalDuration']
 active_hex = p['activeColor']
+show_background = p.get('showBackground', True)
+bg_opacity_pct = p.get('bgOpacity', 40)
 font_path = p['fontPath']
 concat_list_path = os.path.join(output_dir, 'frames.txt')
 
@@ -3741,6 +3745,21 @@ def render_frame(active_idx, evap_word_idx, evap_phase):
     draw = ImageDraw.Draw(img)
     cur_line = get_line_idx(max(0, active_idx)) if active_idx >= 0 else 0
     y_center = int(H * y_ratio)
+
+    if show_background and bg_opacity_pct > 0:
+        num_visible = 2 if cur_line > 0 else 1
+        bar_inner_h = int(num_visible * LINE_H + (num_visible + 1) * LINE_SPACING)
+        blur_r = max(4, int(font_size * 0.45))
+        bar_total_h = bar_inner_h + blur_r * 4
+        bar_alpha = int(bg_opacity_pct * 255 / 100)
+        bar_img = Image.new('RGBA', (W, bar_total_h), (0, 0, 0, 0))
+        bar_draw = ImageDraw.Draw(bar_img)
+        pad = blur_r * 2
+        bar_draw.rectangle([0, pad, W, bar_total_h - pad], fill=(0, 0, 0, bar_alpha))
+        bar_img = bar_img.filter(ImageFilter.GaussianBlur(blur_r))
+        bar_y = y_center - bar_total_h // 2
+        img.paste(bar_img, (0, bar_y), bar_img)
+        draw = ImageDraw.Draw(img)
 
     lines_to_show = []
     if cur_line > 0:
@@ -3875,6 +3894,8 @@ async function processVideoWithText(
     activeColor,
     totalDuration: videoDuration,
     outputDir: framesDir,
+    showBackground: settings.showBackground ?? true,
+    bgOpacity: settings.bgOpacity ?? 40,
   });
   addLog(`✅ تم توليد إطارات التبخر بنجاح`, "success");
 

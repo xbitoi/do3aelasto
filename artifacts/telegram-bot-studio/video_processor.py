@@ -294,7 +294,15 @@ def _render_word_pil(
     reshaped_full = reshape_arabic(full_text)
 
     s_col = shadow_color if shadow_color is not None else (0, 0, 0)
-    shadow_offset = max(4, stroke_thickness)
+    shadow_offset = max(12, stroke_thickness * 3)
+    draw.text(
+        (img_w // 2 + shadow_offset + 4, img_h // 2 + shadow_offset + 4),
+        reshaped_full, font=font, fill=(*s_col, 80), anchor="mm"
+    )
+    draw.text(
+        (img_w // 2 + shadow_offset + 3, img_h // 2 + shadow_offset + 3),
+        reshaped_full, font=font, fill=(*s_col, 140), anchor="mm"
+    )
     draw.text(
         (img_w // 2 + shadow_offset + 1, img_h // 2 + shadow_offset + 1),
         reshaped_full, font=font, fill=(*s_col, 200), anchor="mm"

@@ -177,6 +177,7 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [previewingAudio, setPreviewingAudio] = useState(false);
   const [textSizesOpen, setTextSizesOpen] = useState(false);
+  const [aspectRatioOpen, setAspectRatioOpen] = useState(false);
   const [voicesOpen, setVoicesOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -298,33 +299,46 @@ function DesignSettingsCard({ settings, setSettings, onSave, isSaving }: any) {
              </div>
 
              <div className="pt-3 border-t border-accent/20 space-y-3">
-               <p className="text-xs font-bold text-accent/80 flex items-center gap-1.5">📐 نسبة العرض للارتفاع</p>
-               <div className="grid grid-cols-2 gap-2">
-                 {[
-                   {label: "9:16", desc: "ريلز / شورتس", icon: "📱"},
-                   {label: "16:9", desc: "يوتيوب عادي", icon: "🖥️"},
-                   {label: "1:1", desc: "مربع / إنستغرام", icon: "⬜"},
-                   {label: "4:5", desc: "فيسبوك / إنستغرام", icon: "📲"},
-                 ].map((r) => (
-                   <button
-                     key={r.label}
-                     onClick={() => setSettings({...settings, aspectRatio: r.label})}
-                     className={cn(
-                       "flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all text-sm",
-                       (settings.aspectRatio || "9:16") === r.label
-                         ? "border-primary bg-primary/15 text-foreground shadow-[0_0_12px_rgba(99,102,241,0.2)]"
-                         : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
-                     )}
-                   >
-                     <span className="text-lg">{r.icon}</span>
-                     <span className="font-black text-sm">{r.label}</span>
-                     <span className="text-[10px] opacity-70">{r.desc}</span>
-                   </button>
-                 ))}
-               </div>
-               <p className="text-[10px] text-muted-foreground/50 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
-                 📱 <span className="text-primary font-bold">9:16</span> مثالي للريلز والشورتس — يُطبَّق عند معالجة الفيديو
-               </p>
+               <button
+                 onClick={() => setAspectRatioOpen(!aspectRatioOpen)}
+                 className="flex items-center justify-between w-full py-2 px-3 rounded-xl bg-accent/5 border border-accent/20 hover:bg-accent/10 transition-all text-xs font-bold text-foreground/80"
+               >
+                 <span className="flex items-center gap-2">
+                   <span>📐</span>
+                   <span>نسبة العرض للارتفاع — <span className="text-accent font-black">{settings.aspectRatio ?? "9:16"}</span></span>
+                 </span>
+                 <span className={cn("transition-transform duration-200 text-accent", aspectRatioOpen ? "rotate-180" : "")}>▼</span>
+               </button>
+               {aspectRatioOpen && (
+                 <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                   <div className="grid grid-cols-2 gap-2">
+                     {[
+                       {label: "9:16", desc: "ريلز / شورتس", icon: "📱"},
+                       {label: "16:9", desc: "يوتيوب عادي", icon: "🖥️"},
+                       {label: "1:1", desc: "مربع / إنستغرام", icon: "⬜"},
+                       {label: "4:5", desc: "فيسبوك / إنستغرام", icon: "📲"},
+                     ].map((r) => (
+                       <button
+                         key={r.label}
+                         onClick={() => setSettings({...settings, aspectRatio: r.label})}
+                         className={cn(
+                           "flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all text-sm",
+                           (settings.aspectRatio || "9:16") === r.label
+                             ? "border-primary bg-primary/15 text-foreground shadow-[0_0_12px_rgba(99,102,241,0.2)]"
+                             : "border-border/50 bg-black/20 text-muted-foreground hover:border-border hover:text-foreground"
+                         )}
+                       >
+                         <span className="text-lg">{r.icon}</span>
+                         <span className="font-black text-sm">{r.label}</span>
+                         <span className="text-[10px] opacity-70">{r.desc}</span>
+                       </button>
+                     ))}
+                   </div>
+                   <p className="text-[10px] text-muted-foreground/50 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
+                     📱 <span className="text-primary font-bold">9:16</span> مثالي للريلز والشورتس — يُطبَّق عند معالجة الفيديو
+                   </p>
+                 </div>
+               )}
              </div>
 
              <div className="pt-3 border-t border-warning/20 space-y-4">
@@ -886,7 +900,7 @@ function PreviewCard({ settings }: { settings: AppSettings | null }) {
                 lineHeight: settings.lineHeight,
                 color: settings.textColor,
                 WebkitTextStroke: previewStroke > 0 ? `${previewStroke}px rgba(0,0,0,0.95)` : undefined,
-                textShadow: "0 2px 6px rgba(0,0,0,0.9)",
+                textShadow: `3px 3px 8px ${settings.shadowColor ?? '#000000'}, 6px 6px 18px ${settings.shadowColor ?? '#000000'}cc, 12px 12px 28px ${settings.shadowColor ?? '#000000'}88`,
                 textAlign: "center",
                 padding: "0 8px",
                 maxWidth: "100%",

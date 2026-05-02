@@ -69,6 +69,45 @@ router.post("/proxy-recheck", async (_req, res) => {
   res.json(status);
 });
 
+router.get("/connectivity-test", async (_req, res) => {
+  const results: Record<string, unknown> = {};
+
+  // Test 1: Telegram API
+  try {
+    const r = await fetch("https://api.telegram.org", { signal: AbortSignal.timeout(8000) });
+    results["telegram"] = { ok: true, status: r.status };
+  } catch (e: unknown) {
+    results["telegram"] = { ok: false, error: (e as Error).message };
+  }
+
+  // Test 2: Google (basic internet)
+  try {
+    const r = await fetch("https://www.google.com", { signal: AbortSignal.timeout(8000) });
+    results["google"] = { ok: true, status: r.status };
+  } catch (e: unknown) {
+    results["google"] = { ok: false, error: (e as Error).message };
+  }
+
+  // Test 3: Gemini API
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com", { signal: AbortSignal.timeout(8000) });
+    results["gemini"] = { ok: true, status: r.status };
+  } catch (e: unknown) {
+    results["gemini"] = { ok: false, error: (e as Error).message };
+  }
+
+  // Test 4: WhatsMyIP
+  try {
+    const r = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(8000) });
+    const data = await r.json() as { ip: string };
+    results["publicIp"] = { ok: true, ip: data.ip };
+  } catch (e: unknown) {
+    results["publicIp"] = { ok: false, error: (e as Error).message };
+  }
+
+  res.json(results);
+});
+
 router.post("/credentials/save", async (req, res) => {
   const { botToken, geminiKey, groqKey } = req.body as { botToken: string; geminiKey: string; groqKey?: string };
   if (!botToken || !geminiKey) {

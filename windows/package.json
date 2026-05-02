@@ -1,0 +1,17 @@
+{
+  "name": "telegram-bot-studio",
+  "version": "1.0.0",
+  "description": "استوديو بوت تيليغرام - يعمل على Windows 11 مع Node.js 24",
+  "type": "module",
+  "scripts": {
+    "start": "node --enable-source-maps dist/index.mjs",
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "undici": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "cvJXOIE5doxZmoRylYTJa"
+uri = "file://windows-telegram-bot-studio.zip"
+type = "unspecified"
+title = "استوديو بوت تيليغرام - Windows 11"

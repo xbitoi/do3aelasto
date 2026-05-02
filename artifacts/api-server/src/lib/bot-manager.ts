@@ -1299,12 +1299,21 @@ export function getBotStatus() {
 }
 
 export async function testBotToken(token: string) {
-  const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
-  const data = (await res.json()) as { ok: boolean; result?: { first_name: string; username: string }; description?: string };
-  if (data.ok && data.result) {
-    return { success: true, botName: data.result.first_name, botUsername: data.result.username };
+  const apiBase = (process.env["TELEGRAM_API_URL"] || process.env["BOT_API_URL"] || "https://api.telegram.org").replace(/\/$/, "");
+  try {
+    const res = await fetch(`${apiBase}/bot${token}/getMe`, { signal: AbortSignal.timeout(10000) });
+    const data = (await res.json()) as { ok: boolean; result?: { first_name: string; username: string }; description?: string };
+    if (data.ok && data.result) {
+      return { success: true, botName: data.result.first_name, botUsername: data.result.username };
+    }
+    return { success: false, error: data.description || "توكن غير صالح" };
+  } catch (e: unknown) {
+    const msg = (e as Error).message || String(e);
+    if (msg.includes("timeout") || msg.includes("abort")) {
+      return { success: false, error: "انتهت مهلة الاتصال بـ Telegram — الشبكة محجوبة. يرجى إضافة TELEGRAM_API_URL في الإعدادات." };
+    }
+    return { success: false, error: msg };
   }
-  return { success: false, error: data.description || "توكن غير صالح" };
 }
 
 // ── Social media key testing ──────────────────────────────────────────────
@@ -2130,8 +2139,12 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
   saveCredentials(botToken, geminiKey, groqKey);
 
   const proxyUrl = getProxyUrl();
+  const telegramApiUrl = process.env["TELEGRAM_API_URL"] || process.env["BOT_API_URL"] || "";
   const botOptions: ConstructorParameters<typeof TelegramBot>[1] = { polling: true };
-  if (proxyUrl) {
+  if (telegramApiUrl) {
+    (botOptions as any).baseApiUrl = telegramApiUrl.replace(/\/$/, "");
+    addLog(`🌐 البوت يستخدم Telegram API مخصص: ${telegramApiUrl}`, "info");
+  } else if (proxyUrl) {
     (botOptions as any).request = { proxy: proxyUrl };
     addLog(`🔗 البوت يستخدم البروكسي: ${proxyUrl}`, "info");
   }

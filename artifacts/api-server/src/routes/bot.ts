@@ -64,6 +64,33 @@ router.get("/proxy-status", (_req, res) => {
   res.json(getProxyStatus());
 });
 
+// ── Telegram Bot API Reverse Proxy ─────────────────────────────────────────
+// HuggingFace (AWS) is blocked by Telegram. This endpoint proxies requests
+// so HF Space can set: TELEGRAM_API_URL=https://<replit-domain>/api/tgproxy
+router.all(/^\/tgproxy(\/.*)?$/, async (req, res) => {
+  const suffix = (req.params as Record<string, string>)[0] || "";
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const targetUrl = `https://api.telegram.org${suffix}${qs}`;
+  try {
+    const fetchOpts: RequestInit = {
+      method: req.method,
+      headers: { "Content-Type": req.headers["content-type"] || "application/json" },
+      signal: AbortSignal.timeout(15000),
+    };
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      fetchOpts.body = JSON.stringify(req.body);
+    }
+    const upstream = await fetch(targetUrl, fetchOpts);
+    const body = await upstream.arrayBuffer();
+    res.status(upstream.status);
+    res.set("Content-Type", upstream.headers.get("content-type") || "application/json");
+    res.set("Access-Control-Allow-Origin", "*");
+    res.send(Buffer.from(body));
+  } catch (e: unknown) {
+    res.status(502).json({ ok: false, error: (e as Error).message });
+  }
+});
+
 router.post("/proxy-recheck", async (_req, res) => {
   const status = await recheckProxy();
   res.json(status);

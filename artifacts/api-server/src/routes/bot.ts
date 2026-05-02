@@ -31,6 +31,8 @@ import {
   deleteTikTokVideos,
   listFacebookVideos,
   deleteFacebookVideos,
+  saveCredentials,
+  loadCredentials,
 } from "../lib/bot-manager.js";
 
 const router: IRouter = Router();
@@ -55,6 +57,26 @@ router.post("/bot/stop", (_req, res) => {
 
 router.get("/bot/status", (_req, res) => {
   res.json(getBotStatus());
+});
+
+router.post("/credentials/save", (req, res) => {
+  const { botToken, geminiKey, groqKey } = req.body as { botToken: string; geminiKey: string; groqKey?: string };
+  if (!botToken || !geminiKey) {
+    res.status(400).json({ error: "توكن البوت ومفتاح Gemini مطلوبان" });
+    return;
+  }
+  saveCredentials(botToken, geminiKey, groqKey || "");
+  res.json({ success: true });
+});
+
+router.get("/credentials", (_req, res) => {
+  const creds = loadCredentials();
+  if (!creds) { res.json({ botToken: "", geminiKey: "", groqKey: "" }); return; }
+  res.json({
+    botToken: creds.botToken,
+    geminiKey: creds.geminiKey,
+    groqKey: creds.groqKey || "",
+  });
 });
 
 router.post("/bot/test", async (req, res) => {

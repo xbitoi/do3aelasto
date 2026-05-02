@@ -230,7 +230,7 @@ function trackChat(chatId: number) {
 // ── Credentials persistence (for auto-restart) ─────────────────────────────
 const CREDS_FILE = path.join(process.cwd(), "bot-creds.json");
 
-function saveCredentials(botToken: string, geminiKey: string, groqKey: string) {
+export function saveCredentials(botToken: string, geminiKey: string, groqKey: string) {
   try {
     fs.writeFileSync(CREDS_FILE, JSON.stringify({ botToken, geminiKey, groqKey }, null, 2), "utf8");
   } catch (err) {
@@ -238,7 +238,7 @@ function saveCredentials(botToken: string, geminiKey: string, groqKey: string) {
   }
 }
 
-function loadCredentials(): { botToken: string; geminiKey: string; groqKey: string } | null {
+export function loadCredentials(): { botToken: string; geminiKey: string; groqKey: string } | null {
   try {
     if (fs.existsSync(CREDS_FILE)) {
       return JSON.parse(fs.readFileSync(CREDS_FILE, "utf8"));

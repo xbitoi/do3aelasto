@@ -134,14 +134,28 @@ export function AdvancedSettings() {
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem("geminiKey") || "");
   const [groqKey, setGroqKey] = useState(localStorage.getItem("groqKey") || "");
   const [botStatus, setBotStatus] = useState<{ applying: boolean; result?: { success: boolean; message: string } }>({ applying: false });
+  const [telegramStatus, setTelegramStatus] = useState<{ loading: boolean; valid?: boolean; botName?: string; botUsername?: string; error?: string } | null>(null);
   const [socialTests, setSocialTests] = useState<Record<string, { loading: boolean; success?: boolean; info?: string }>>({});
   const [geminiStatus, setGeminiStatus] = useState<{ loading: boolean; valid?: boolean; status?: string; message?: string; models?: string[] } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botRestartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const telegramCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (serverSettings) setSettings(serverSettings);
   }, [serverSettings]);
+
+  useEffect(() => {
+    fetch("/api/credentials").then(r => r.json()).then((creds: { botToken: string; geminiKey: string; groqKey: string }) => {
+      if (creds.botToken && !localStorage.getItem("botToken")) { setBotToken(creds.botToken); localStorage.setItem("botToken", creds.botToken); }
+      else if (creds.botToken && !botToken) { setBotToken(creds.botToken); }
+      if (creds.geminiKey && !localStorage.getItem("geminiKey")) { setGeminiKey(creds.geminiKey); localStorage.setItem("geminiKey", creds.geminiKey); }
+      else if (creds.geminiKey && !geminiKey) { setGeminiKey(creds.geminiKey); }
+      if (creds.groqKey && !localStorage.getItem("groqKey")) { setGroqKey(creds.groqKey); localStorage.setItem("groqKey", creds.groqKey); }
+      else if (creds.groqKey && !groqKey) { setGroqKey(creds.groqKey); }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSettingChange = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -163,17 +177,50 @@ export function AdvancedSettings() {
     }
   };
 
+  const checkTelegramStatus = async (token: string) => {
+    if (!token) { setTelegramStatus(null); return; }
+    setTelegramStatus({ loading: true });
+    try {
+      const res = await fetch("/api/bot/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botToken: token }),
+      });
+      const data = await res.json() as { success: boolean; botName?: string; botUsername?: string; error?: string };
+      setTelegramStatus({ loading: false, valid: data.success, botName: data.botName, botUsername: data.botUsername, error: data.error });
+    } catch {
+      setTelegramStatus({ loading: false, valid: false, error: "تعذّر الاتصال بالخادم" });
+    }
+  };
+
+  const saveKeys = (token: string, gemini: string, groq: string) => {
+    if (!token && !gemini) return;
+    fetch("/api/credentials/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ botToken: token, geminiKey: gemini, groqKey: groq }),
+    }).catch(() => {});
+  };
+
   const handleBotKeyChange = (field: "botToken" | "geminiKey" | "groqKey", value: string) => {
-    if (field === "botToken") { setBotToken(value); localStorage.setItem("botToken", value); }
+    const newToken = field === "botToken" ? value : botToken;
+    const newGemini = field === "geminiKey" ? value : geminiKey;
+    const newGroq = field === "groqKey" ? value : groqKey;
+
+    if (field === "botToken") { setBotToken(value); localStorage.setItem("botToken", value); setTelegramStatus(null); }
     if (field === "geminiKey") { setGeminiKey(value); localStorage.setItem("geminiKey", value); setGeminiStatus(null); }
     if (field === "groqKey") { setGroqKey(value); localStorage.setItem("groqKey", value); }
 
+    if (telegramCheckTimer.current) clearTimeout(telegramCheckTimer.current);
+    if (field === "botToken") {
+      telegramCheckTimer.current = setTimeout(() => checkTelegramStatus(value), 1200);
+    }
+
     if (botRestartTimer.current) clearTimeout(botRestartTimer.current);
-    botRestartTimer.current = setTimeout(() => applyBotKeys(
-      field === "botToken" ? value : botToken,
-      field === "geminiKey" ? value : geminiKey,
-      field === "groqKey" ? value : groqKey,
-    ), 2000);
+    botRestartTimer.current = setTimeout(() => {
+      saveKeys(newToken, newGemini, newGroq);
+      applyBotKeys(newToken, newGemini, newGroq);
+    }, 2000);
   };
 
   const applyBotKeys = async (token: string, gemini: string, groq: string) => {
@@ -300,6 +347,28 @@ export function AdvancedSettings() {
                 onChange={(v) => handleBotKeyChange("botToken", v)}
                 hint="من @BotFather في تيليغرام"
               />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => checkTelegramStatus(botToken)}
+                  disabled={!botToken || telegramStatus?.loading}
+                  className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {telegramStatus?.loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                  فحص التوكن
+                </button>
+                {telegramStatus && !telegramStatus.loading && (
+                  <span className={cn(
+                    "text-xs font-bold px-2.5 py-1 rounded-lg border",
+                    telegramStatus.valid
+                      ? "text-green-400 bg-green-500/10 border-green-500/20"
+                      : "text-red-400 bg-red-500/10 border-red-500/20"
+                  )}>
+                    {telegramStatus.valid
+                      ? `✅ متصل — ${telegramStatus.botName} (@${telegramStatus.botUsername})`
+                      : `❌ ${telegramStatus.error || "توكن غير صالح"}`}
+                  </span>
+                )}
+              </div>
               <KeyInput
                 label="مفتاح Gemini AI"
                 placeholder="AIzaSy..."
@@ -348,7 +417,7 @@ export function AdvancedSettings() {
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground/40 bg-black/20 rounded-xl px-3 py-2 border border-border/30">
-                🔄 يُطبَّق تلقائياً بعد ثانيتين من التوقف عن الكتابة — يعيد تشغيل البوت بالمفاتيح الجديدة
+                💾 يُحفظ تلقائياً بعد ثانيتين — ويُشغَّل البوت تلقائياً عند إدخال كلا المفتاحين
               </p>
             </div>
 

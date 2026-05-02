@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { tryAutoStartBot } from "./lib/bot-manager.js";
+import { initProxy } from "./lib/proxy-manager.js";
 
 const rawPort = process.env["PORT"];
 
@@ -24,9 +25,12 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 
-  tryAutoStartBot().then((result) => {
+  initProxy().then((proxyStatus) => {
+    logger.info({ connectionType: proxyStatus.type, proxy: proxyStatus.proxyUrl }, "Connection type determined");
+    return tryAutoStartBot();
+  }).then((result) => {
     logger.info({ result }, "Auto-start bot result");
   }).catch((err) => {
-    logger.warn({ err }, "Auto-start bot failed");
+    logger.warn({ err }, "Startup sequence failed");
   });
 });

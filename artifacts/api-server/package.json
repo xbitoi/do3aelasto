@@ -22,7 +22,8 @@
     "node-gtts": "^2.0.2",
     "node-telegram-bot-api": "^0.67.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "undici": "^8.1.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

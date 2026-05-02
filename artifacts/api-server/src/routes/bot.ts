@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import fs from "fs";
+import { getProxyStatus, recheckProxy } from "../lib/proxy-manager.js";
 import {
   startBot,
   stopBot,
@@ -57,6 +58,15 @@ router.post("/bot/stop", (_req, res) => {
 
 router.get("/bot/status", (_req, res) => {
   res.json(getBotStatus());
+});
+
+router.get("/proxy-status", (_req, res) => {
+  res.json(getProxyStatus());
+});
+
+router.post("/proxy-recheck", async (_req, res) => {
+  const status = await recheckProxy();
+  res.json(status);
 });
 
 router.post("/credentials/save", (req, res) => {

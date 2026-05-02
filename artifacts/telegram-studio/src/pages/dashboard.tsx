@@ -3,8 +3,80 @@ import { useGetSettings, useUpdateSettings, useGetBotStatus } from "@workspace/a
 import type { AppSettings, BotStatus, LogEntry } from "@workspace/api-client-react/src/generated/api.schemas";
 import { PremiumCard, PremiumButton, Slider, ColorPicker, Select, Switch } from "@/components/ui-elements";
 import { useToast } from "@/hooks/use-toast";
-import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, VolumeX, Loader2, Share2, FileText, Send, MessageCircle, Wifi, Layers } from "lucide-react";
+import { Activity, Paintbrush, LayoutTemplate, Palette, Mic2, ChevronDown, RefreshCw, Bot, Volume2, VolumeX, Loader2, Share2, FileText, Send, MessageCircle, Wifi, Layers, Globe, ShieldCheck, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type ConnectionType = "proxy" | "direct" | "none";
+interface ProxyStatus { type: ConnectionType; proxyUrl?: string; checked: boolean; checking: boolean; error?: string; checkedAt?: number; }
+
+function ConnectionStatusCard() {
+  const [status, setStatus] = useState<ProxyStatus | null>(null);
+  const [rechecking, setRechecking] = useState(false);
+
+  const fetchStatus = () => {
+    fetch("/api/proxy-status").then(r => r.json()).then((s: ProxyStatus) => setStatus(s)).catch(() => {});
+  };
+
+  useEffect(() => { fetchStatus(); const id = setInterval(fetchStatus, 30000); return () => clearInterval(id); }, []);
+
+  const recheck = async () => {
+    setRechecking(true);
+    try {
+      const r = await fetch("/api/proxy-recheck", { method: "POST" });
+      const s: ProxyStatus = await r.json();
+      setStatus(s);
+    } finally {
+      setRechecking(false);
+    }
+  };
+
+  const isProxy = status?.type === "proxy";
+  const isNone = status?.type === "none";
+  const isChecking = !status?.checked || status.checking;
+
+  const iconColor = isChecking ? "text-primary" : isNone ? "text-destructive" : "text-success";
+  const bgColor = isChecking ? "bg-primary/10 border-primary/30" : isNone ? "bg-destructive/10 border-destructive/30" : "bg-success/10 border-success/30";
+  const Icon = isChecking ? Loader2 : isNone ? WifiOff : isProxy ? ShieldCheck : Globe;
+
+  return (
+    <div className="relative group rounded-[2rem] bg-card border border-border shadow-xl overflow-hidden p-5 sm:p-6">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/3 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+      <div className="relative z-10 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className={cn("p-2 rounded-xl border shadow-inner transition-colors", bgColor)}>
+            <Icon className={cn("w-4 h-4", iconColor, isChecking && "animate-spin")} />
+          </div>
+          <div>
+            <p className="text-xs font-black text-foreground/70 uppercase tracking-widest">حالة الاتصال بالإنترنت</p>
+            <p className={cn("text-sm font-bold mt-0.5", isChecking ? "text-primary" : isNone ? "text-destructive" : "text-success")}>
+              {isChecking
+                ? "جاري فحص الاتصال…"
+                : isNone
+                  ? "❌ لا يوجد اتصال بالإنترنت"
+                  : isProxy
+                    ? `✅ متصل عبر بروكسي`
+                    : "✅ متصل مباشرةً بالإنترنت"}
+            </p>
+            {isProxy && status?.proxyUrl && (
+              <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5 truncate max-w-[220px]">{status.proxyUrl}</p>
+            )}
+            {isNone && status?.error && (
+              <p className="text-[10px] text-destructive/70 mt-0.5">{status.error}</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={recheck}
+          disabled={rechecking || isChecking}
+          className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground bg-white/5 hover:bg-white/10 border border-border/40 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+        >
+          <RefreshCw className={cn("w-3 h-3", rechecking && "animate-spin")} />
+          إعادة فحص
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function BotStatusMiniCard({ status, onSendWelcome, isSendingWelcome }: { status?: BotStatus; onSendWelcome: () => void; isSendingWelcome: boolean }) {
   const isRunning = status?.running || false;
@@ -1159,6 +1231,7 @@ export function Dashboard() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
       <div className="lg:col-span-5 space-y-8 lg:space-y-10">
+        <ConnectionStatusCard />
         <BotStatusMiniCard
           status={status}
           onSendWelcome={handleSendWelcome}

@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { logger } from "./logger.js";
+import { getProxyUrl } from "./proxy-manager.js";
 import { recordPublish, getAnalyticsSummary, buildWeeklyReportText, saveChannelStats, loadChannelStats, type ChannelStat } from "./analytics.js";
 
 const execAsync = promisify(exec);
@@ -2128,7 +2129,13 @@ export async function startBot(geminiKey: string, botToken: string, settings: Ap
 
   saveCredentials(botToken, geminiKey, groqKey);
 
-  botInstance = new TelegramBot(botToken, { polling: true });
+  const proxyUrl = getProxyUrl();
+  const botOptions: ConstructorParameters<typeof TelegramBot>[1] = { polling: true };
+  if (proxyUrl) {
+    (botOptions as any).request = { proxy: proxyUrl };
+    addLog(`🔗 البوت يستخدم البروكسي: ${proxyUrl}`, "info");
+  }
+  botInstance = new TelegramBot(botToken, botOptions);
   botRunning = true;
 
   startScheduler();

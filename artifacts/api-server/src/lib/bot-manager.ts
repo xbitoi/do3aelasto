@@ -2595,13 +2595,28 @@ export function stopBot() {
 
 export async function tryAutoStartBot() {
   if (botRunning) return { success: true, message: "البوت يعمل بالفعل" };
-  const creds = loadCredentials();
+
+  // Priority 1: saved credentials file
+  let creds = loadCredentials();
+
+  // Priority 2: environment variables (useful for HuggingFace Spaces secrets)
   if (!creds?.botToken || !creds?.geminiKey) {
-    addLog("⚠️ لم يتم العثور على مفاتيح محفوظة — يرجى إدخالها من الإعدادات المتقدمة", "warning");
+    const envToken = process.env["BOT_TOKEN"] || process.env["TELEGRAM_BOT_TOKEN"] || process.env["TELEGRAM_TOKEN"];
+    const envGemini = process.env["GEMINI_KEY"] || process.env["GEMINI_API_KEY"];
+    const envGroq = process.env["GROQ_KEY"] || process.env["GROQ_API_KEY"] || "";
+    if (envToken && envGemini) {
+      addLog("🔑 تشغيل البوت من متغيرات البيئة (BOT_TOKEN / GEMINI_KEY)...", "info");
+      creds = { botToken: envToken, geminiKey: envGemini, groqKey: envGroq };
+    }
+  }
+
+  if (!creds?.botToken || !creds?.geminiKey) {
+    addLog("⚠️ لم يتم العثور على مفاتيح — أضف BOT_TOKEN و GEMINI_KEY كـ Secrets في HuggingFace أو أدخلها من الإعدادات المتقدمة", "warning");
     return { success: false, message: "لا توجد مفاتيح محفوظة" };
   }
+
   const settings = getSettings();
-  addLog("🔄 تشغيل البوت تلقائياً من المفاتيح المحفوظة...", "info");
+  addLog("🔄 تشغيل البوت تلقائياً...", "info");
   return await startBot(creds.geminiKey, creds.botToken, settings, creds.groqKey || "", true);
 }
 

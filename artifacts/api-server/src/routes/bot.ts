@@ -69,13 +69,19 @@ router.post("/proxy-recheck", async (_req, res) => {
   res.json(status);
 });
 
-router.post("/credentials/save", (req, res) => {
+router.post("/credentials/save", async (req, res) => {
   const { botToken, geminiKey, groqKey } = req.body as { botToken: string; geminiKey: string; groqKey?: string };
   if (!botToken || !geminiKey) {
     res.status(400).json({ error: "توكن البوت ومفتاح Gemini مطلوبان" });
     return;
   }
   saveCredentials(botToken, geminiKey, groqKey || "");
+  // Auto-start bot if not already running
+  const botStatus = getBotStatus();
+  if (!botStatus.running) {
+    const settings = getSettings();
+    startBot(geminiKey, botToken, settings, groqKey || "", true).catch(() => {});
+  }
   res.json({ success: true });
 });
 

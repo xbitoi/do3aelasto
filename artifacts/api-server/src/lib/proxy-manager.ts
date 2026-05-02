@@ -1,4 +1,4 @@
-import { ProxyAgent, setGlobalDispatcher, Agent } from "undici";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 import { logger } from "./logger.js";
 
 export type ConnectionType = "proxy" | "direct" | "none";
@@ -14,30 +14,8 @@ export interface ProxyStatus {
 
 let status: ProxyStatus = { type: "direct", checked: false, checking: false };
 
-const TEST_URL = "https://api.telegram.org";
-const TIMEOUT_MS = 6000;
-
-async function testConnectivity(proxyUrl?: string): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const opts: Record<string, unknown> = { signal: controller.signal, method: "HEAD" };
-    if (proxyUrl) {
-      (opts as any).dispatcher = new ProxyAgent(proxyUrl);
-    }
-    const res = await fetch(TEST_URL, opts as RequestInit);
-    clearTimeout(timer);
-    return res.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-export async function initProxy(): Promise<ProxyStatus> {
-  if (status.checking) return status;
-  status = { ...status, checking: true };
-
-  const proxyUrl =
+function detectProxyFromEnv(): string | undefined {
+  return (
     process.env["HTTPS_PROXY"] ||
     process.env["HTTP_PROXY"] ||
     process.env["https_proxy"] ||
@@ -45,41 +23,34 @@ export async function initProxy(): Promise<ProxyStatus> {
     process.env["ALL_PROXY"] ||
     process.env["all_proxy"] ||
     process.env["SOCKS_PROXY"] ||
-    process.env["SOCKS5_PROXY"];
+    process.env["SOCKS5_PROXY"]
+  );
+}
 
-  if (proxyUrl) {
-    logger.info({ proxyUrl }, "Proxy configured — testing…");
-    const proxyWorks = await testConnectivity(proxyUrl);
-    if (proxyWorks) {
-      try {
-        const agent = new ProxyAgent(proxyUrl);
-        setGlobalDispatcher(agent);
-        status = { type: "proxy", proxyUrl, checked: true, checking: false, checkedAt: Date.now() };
-        logger.info({ proxyUrl }, "Proxy works — using it for all connections");
-        return status;
-      } catch (err) {
-        logger.warn({ err }, "Failed to set global proxy dispatcher");
-      }
+export async function initProxy(): Promise<ProxyStatus> {
+  const proxyUrl = detectProxyFromEnv();
+
+  try {
+    // EnvHttpProxyAgent automatically reads HTTPS_PROXY / HTTP_PROXY / NO_PROXY from env
+    const agent = new EnvHttpProxyAgent();
+    setGlobalDispatcher(agent);
+
+    if (proxyUrl) {
+      status = { type: "proxy", proxyUrl, checked: true, checking: false, checkedAt: Date.now() };
+      logger.info({ proxyUrl }, "Proxy configured via env — EnvHttpProxyAgent active");
     } else {
-      logger.warn({ proxyUrl }, "Proxy configured but unreachable — trying direct");
+      status = { type: "direct", checked: true, checking: false, checkedAt: Date.now() };
+      logger.info("No proxy in env — direct connection via EnvHttpProxyAgent");
     }
-  }
-
-  const directWorks = await testConnectivity();
-  if (directWorks) {
-    setGlobalDispatcher(new Agent());
-    status = { type: "direct", checked: true, checking: false, checkedAt: Date.now() };
-    logger.info("Direct internet access confirmed");
-  } else {
-    status = { type: "none", checked: true, checking: false, error: "لا يوجد اتصال بالإنترنت", checkedAt: Date.now() };
-    logger.warn("No internet access detected (proxy or direct)");
+  } catch (err) {
+    logger.warn({ err }, "Failed to set EnvHttpProxyAgent, using default dispatcher");
+    status = { type: proxyUrl ? "proxy" : "direct", proxyUrl, checked: true, checking: false, checkedAt: Date.now() };
   }
 
   return status;
 }
 
 export async function recheckProxy(): Promise<ProxyStatus> {
-  status = { type: "direct", checked: false, checking: false };
   return initProxy();
 }
 
@@ -88,5 +59,5 @@ export function getProxyStatus(): ProxyStatus {
 }
 
 export function getProxyUrl(): string | undefined {
-  return status.type === "proxy" ? status.proxyUrl : undefined;
+  return detectProxyFromEnv();
 }
